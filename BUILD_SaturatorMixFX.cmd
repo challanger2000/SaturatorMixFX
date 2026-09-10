@@ -5,6 +5,7 @@ chcp 65001 >nul
 title SaturatorMixFX - Local Build
 
 cd /d "%~dp0"
+for %%I in ("%~dp0.") do set "PROJECT_DIR=%%~fI"
 
 echo ============================================================
 echo   SaturatorMixFX - lokaler Windows VST3 Build
@@ -24,8 +25,8 @@ if defined VST3_SDK_ROOT (
     if exist "%VST3_SDK_ROOT%\CMakeLists.txt" set "SDK=%VST3_SDK_ROOT%"
 )
 
-if not defined SDK if exist "%~dp0vst3sdk\CMakeLists.txt" set "SDK=%~dp0vst3sdk"
-if not defined SDK if exist "%~dp0..\vst3sdk\CMakeLists.txt" set "SDK=%~dp0..\vst3sdk"
+if not defined SDK if exist "%PROJECT_DIR%\vst3sdk\CMakeLists.txt" set "SDK=%PROJECT_DIR%\vst3sdk"
+if not defined SDK if exist "%PROJECT_DIR%\..\vst3sdk\CMakeLists.txt" set "SDK=%PROJECT_DIR%\..\vst3sdk"
 if not defined SDK if exist "C:\VST3_SDK\CMakeLists.txt" set "SDK=C:\VST3_SDK"
 if not defined SDK if exist "C:\SDKs\vst3sdk\CMakeLists.txt" set "SDK=C:\SDKs\vst3sdk"
 if not defined SDK if exist "C:\dev\vst3sdk\CMakeLists.txt" set "SDK=C:\dev\vst3sdk"
@@ -43,15 +44,16 @@ if not defined SDK (
     goto :fail
 )
 
+echo [OK] Projekt: "%PROJECT_DIR%"
 echo [OK] VST3 SDK: "%SDK%"
 echo.
 
-set "BUILD_DIR=%~dp0build-local"
+set "BUILD_DIR=%PROJECT_DIR%\build-local"
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 echo [1/2] CMake konfigurieren...
-cmake -S "%~dp0" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DVST3_SDK_ROOT="%SDK%"
+cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DVST3_SDK_ROOT="%SDK%"
 if errorlevel 1 goto :fail
 
 echo.
@@ -62,7 +64,7 @@ if errorlevel 1 goto :fail
 echo.
 echo ============================================================
 echo   BUILD ERFOLGREICH
-ECHO ============================================================
+echo ============================================================
 echo.
 
 echo Suche SaturatorMixFX.vst3 ...
@@ -90,7 +92,7 @@ exit /b 0
 echo.
 echo ============================================================
 echo   BUILD FEHLGESCHLAGEN
-ECHO ============================================================
+echo ============================================================
 echo.
 echo Die Fehlermeldung steht weiter oben in diesem Fenster.
 echo Bitte nichts wegklicken - den Text kannst du mir einfach schicken.
