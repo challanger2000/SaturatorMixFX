@@ -63,22 +63,33 @@ public:
     explicit TubeGlowView(const VSTGUI::CRect& r) : CView(r)
     {
         const std::array<const char*,3> names{{"TubeGlow_1.png","TubeGlow_2.png","TubeGlow_3.png"}};
-        for (int i=0;i<3;++i) glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
+        for (int i=0;i<3;++i)
+            glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
         setMouseEnabled(false);
-        timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*) { phase_ += 0.055; invalid(); }, 50);
+        timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
+            [this](VSTGUI::CVSTGUITimer*) {
+                // Slow, independent heater drift. Deliberately not tied to audio,
+                // DRIVE or the selected saturation mode.
+                phase_ += 0.025;
+                invalid();
+            }, 50);
     }
 
     void draw(VSTGUI::CDrawContext* ctx) override
     {
         if (!ctx) { setDirty(false); return; }
+
         const std::array<double,3> phaseOffset{{0.0, 2.1, 4.4}};
         const std::array<double,3> speed{{1.0, 0.83, 1.17}};
         const VSTGUI::CRect full(0,0,1536,1024);
+
         for (int i=0;i<3;++i) {
             if (!glow_[i]) continue;
-            double a = 0.22 + 0.055 * std::sin(phase_ * speed[i] + phaseOffset[i]);
-            a += 0.018 * std::sin(phase_ * 0.37 + phaseOffset[i] * 1.7);
-            a = std::clamp(a, 0.14, 0.31);
+
+            // Visible but restrained shimmer: no blinking and no common pulse.
+            double a = 0.34 + 0.10 * std::sin(phase_ * speed[i] + phaseOffset[i]);
+            a += 0.025 * std::sin(phase_ * 0.37 + phaseOffset[i] * 1.7);
+            a = std::clamp(a, 0.20, 0.50);
             glow_[i]->draw(ctx, full, VSTGUI::CPoint(0,0), static_cast<float>(a));
         }
         setDirty(false);
@@ -160,7 +171,7 @@ public:
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
 
-        // Known-good button geometry from Build #16.
+        // Final measured button geometry. Do not move the switches here.
         constexpr std::array<double,3> cx{{1090,1230,1370}};
         constexpr double cy = 770;
         constexpr double bw = 151;
@@ -169,17 +180,40 @@ public:
         constexpr double ledCy = 669;
         constexpr double ledXCorrection = -6;
 
+        // Only the shallow decorative rim at the very top of the IN artwork is
+        // replaced with the clean OUT artwork. The actual depressed switch,
+        // bezel and label remain the complete IN state.
+        constexpr double cleanRimHeight = 24;
+
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
+            const double left = cx[i]-bw/2.0;
+            const double top = cy-bh/2.0;
+            const double right = cx[i]+bw/2.0;
+            const double bottom = cy+bh/2.0;
+
             auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
             if (b) {
-                VSTGUI::CRect dst(cx[i]-bw/2.0, cy-bh/2.0, cx[i]+bw/2.0, cy+bh/2.0);
+                VSTGUI::CRect dst(left, top, right, bottom);
                 b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
+
+            if (pressed) {
+                auto& clean = button_[static_cast<size_t>(i*2)];
+                if (clean) {
+                    // Mask only the unwanted floating arc/rim. This does not
+                    // touch the switch body and therefore cannot flatten the
+                    // pressed state as the previous broad overlay did.
+                    VSTGUI::CRect rim(left, top, right, top + cleanRimHeight);
+                    clean->draw(ctx, rim, VSTGUI::CPoint(0,0), 1.f);
+                }
+            }
+
             auto& lamp = pressed ? ledOn_ : ledOff_;
             if (lamp) {
                 const double ledCx = cx[i] + ledXCorrection;
-                VSTGUI::CRect dst(ledCx-led/2.0, ledCy-led/2.0, ledCx+led/2.0, ledCy+led/2.0);
+                VSTGUI::CRect dst(ledCx-led/2.0, ledCy-led/2.0,
+                                  ledCx+led/2.0, ledCy+led/2.0);
                 lamp->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
         }
