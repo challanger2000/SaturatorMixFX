@@ -160,39 +160,46 @@ public:
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
 
-        // Keep the measured V5 centers fixed while enlarging the complete
-        // button/seat artwork by 20%. This prevents the controls from drifting.
+        // Optical centers measured from the current runtime screenshot.
+        // Keep the buttons fixed; only correct LED alignment.
         constexpr std::array<double,3> cx{{1090,1230,1370}};
         constexpr double cy = 770;
         constexpr double bw = 151;
         constexpr double bh = 158;
         constexpr double led = 34;
         constexpr double ledCy = 669;
-        constexpr double pressedTopClip = 18;
+        constexpr double ledXCorrection = -6;
+
+        // The active IN artwork exposes an unwanted bright upper rim when its
+        // full native canvas is shown. Draw the clean OUT seat first, then only
+        // overlay the lower IN portion where the actual depressed button lives.
+        constexpr double pressedOverlayTop = 42;
 
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
-            auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
-            if (b) {
-                const double left = cx[i]-bw/2.0;
-                const double top = cy-bh/2.0;
-                const double right = cx[i]+bw/2.0;
-                const double bottom = cy+bh/2.0;
+            const double left = cx[i]-bw/2.0;
+            const double top = cy-bh/2.0;
+            const double right = cx[i]+bw/2.0;
+            const double bottom = cy+bh/2.0;
 
-                if (pressed) {
-                    // The IN artwork contains an unwanted bright rim in its
-                    // top strip. Skip only that strip and keep the remaining
-                    // artwork in exactly the same faceplate coordinates.
-                    VSTGUI::CRect dst(left, top+pressedTopClip, right, bottom);
-                    b->draw(ctx, dst, VSTGUI::CPoint(0,pressedTopClip), 1.f);
-                } else {
-                    VSTGUI::CRect dst(left, top, right, bottom);
-                    b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+            auto& outButton = button_[static_cast<size_t>(i*2)];
+            if (outButton) {
+                VSTGUI::CRect dst(left, top, right, bottom);
+                outButton->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+            }
+
+            if (pressed) {
+                auto& inButton = button_[static_cast<size_t>(i*2 + 1)];
+                if (inButton) {
+                    VSTGUI::CRect dst(left, top+pressedOverlayTop, right, bottom);
+                    inButton->draw(ctx, dst, VSTGUI::CPoint(0,pressedOverlayTop), 1.f);
                 }
             }
+
             auto& lamp = pressed ? ledOn_ : ledOff_;
             if (lamp) {
-                VSTGUI::CRect dst(cx[i]-led/2.0, ledCy-led/2.0, cx[i]+led/2.0, ledCy+led/2.0);
+                const double ledCx = cx[i] + ledXCorrection;
+                VSTGUI::CRect dst(ledCx-led/2.0, ledCy-led/2.0, ledCx+led/2.0, ledCy+led/2.0);
                 lamp->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
         }
