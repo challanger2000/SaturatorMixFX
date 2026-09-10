@@ -18,14 +18,19 @@ static double clamp01(double v) {
     return std::max(0.0, std::min(1.0, v));
 }
 
+// Match the known-good LightOrgan lifecycle: associate the controller as soon
+// as the processor object is constructed, before the host calls initialize().
+Processor::Processor() {
+    setControllerClass(kControllerUID);
+}
+
 tresult PLUGIN_API Processor::initialize(FUnknown* context) {
     auto result = AudioEffect::initialize(context);
     if (result != kResultOk)
         return result;
 
-    setControllerClass(kControllerUID);
-    addAudioInput(STR16("Stereo In"), SpeakerArr::kStereo);
-    addAudioOutput(STR16("Stereo Out"), SpeakerArr::kStereo);
+    addAudioInput(STR16("Stereo In"), SpeakerArr::kStereo, kMain, BusInfo::kDefaultActive);
+    addAudioOutput(STR16("Stereo Out"), SpeakerArr::kStereo, kMain, BusInfo::kDefaultActive);
     return kResultOk;
 }
 
@@ -71,8 +76,6 @@ void Processor::readParameterChanges(IParameterChanges* changes) {
 }
 
 float Processor::saturate(float x) const {
-    // Deliberately restrained input gain: Drive increases density without
-    // turning the plugin into a conventional hard clipper.
     const float gain = std::pow(16.0f, static_cast<float>(drive_));
     const float driven = x * gain;
     const int mode = std::clamp(static_cast<int>(std::lround(character_ * 2.0)), 0, 2);
@@ -80,27 +83,20 @@ float Processor::saturate(float x) const {
     float y = driven;
     switch (mode) {
         case kTriode: {
-            // Mild asymmetry gives the Triode path a predominantly even-order
-            // harmonic fingerprint while retaining a soft, musical knee.
             const float bias = 0.16f;
             const float positive = std::tanh(driven * 1.05f + bias);
             const float negative = std::tanh(driven * 0.98f + bias);
             y = 0.5f * (positive + negative) - std::tanh(bias);
             break;
         }
-
         case kPentode: {
-            // A firmer knee and slightly stronger odd-order content.
             const float shaped = std::tanh(driven * 1.42f);
             const float second = std::tanh(driven * 2.15f);
             y = shaped * 0.86f + second * 0.14f;
             break;
         }
-
         case kIron:
         default: {
-            // Transformer/iron-inspired soft compression with a little
-            // hysteresis-like memory added later by the magic stage.
             const float a = std::abs(driven);
             const float compressed = driven / (1.0f + 0.58f * a);
             y = std::tanh(compressed * 1.22f);
@@ -108,24 +104,16 @@ float Processor::saturate(float x) const {
         }
     }
 
-    // Compensation keeps Drive useful on a mix bus: more drive creates more
-    // density, not simply more loudness.
     const float compensation = 1.0f / std::sqrt(gain);
     return y * compensation;
 }
 
 float Processor::magic(float x, float saturated) const {
-    // The "Magik" stage is intentionally subtle. It is a parallel harmonic
-    // path, not another obvious distortion control: a tiny asymmetric branch
-    // adds upper harmonics and a sense of cohesion without sounding clipped.
     const float ax = std::abs(x);
     const float intensity = 0.025f + 0.055f * std::clamp(ax * 1.8f, 0.0f, 1.0f);
-
     const float asym = x + 0.035f * x * x;
     const float harmonic = std::tanh(asym * 2.25f) - std::tanh(asym * 0.82f);
     const float polished = saturated + intensity * harmonic;
-
-    // A very small cubic term rounds transients after the parallel branch.
     return polished - 0.006f * polished * polished * polished;
 }
 
