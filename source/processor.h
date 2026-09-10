@@ -25,6 +25,7 @@ public:
 private:
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
     float saturate(float x) const;
+    float magic(float x, float saturated) const;
 
     double onOff_ = 0.0;      // VST3 bypass: 0 = active, 1 = bypass
     double drive_ = 0.30;
