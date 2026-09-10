@@ -34,44 +34,23 @@ private: VSTGUI::SharedPointer<VSTGUI::CBitmap> bitmap_;
 class TubeGlowView final : public VSTGUI::CView {
 public:
     explicit TubeGlowView(const VSTGUI::CRect&r):CView(r) {
-        const std::array<const char*,3> names{{"SMX3_SCHWACH.png","SMX3_MITTEL.png","SMX3_STARK.png"}};
-        for(size_t i=0;i<3;++i)
-            state_[i]=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
+        tube_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_MITTEL.png"));
         setMouseEnabled(false);
-        timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
-            phase_+=0.03;
-            if(phase_>=2.*kPi)phase_-=2.*kPi;
-            invalid();
-        },50);
     }
     void draw(VSTGUI::CDrawContext*ctx) override {
-        if(!ctx){setDirty(false);return;}
+        if(!ctx||!tube_){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
         constexpr double cy=322.,tubeW=280.,tubeH=340.;
-
-        const double level=(0.5+0.5*std::sin(phase_))*2.;
-        const int lo=std::clamp(static_cast<int>(std::floor(level)),0,2);
-        const int hi=std::min(lo+1,2);
-        const float mix=static_cast<float>(level-lo);
-
+        const VSTGUI::CRect src(0.,0.,tube_->getWidth(),tube_->getHeight());
         ctx->setBitmapInterpolationQuality(VSTGUI::CDrawContext::kHigh);
         for(size_t i=0;i<3;++i){
             const VSTGUI::CRect dst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
-            if(state_[lo]){
-                const VSTGUI::CRect src(0.,0.,state_[lo]->getWidth(),state_[lo]->getHeight());
-                ctx->fillRectWithBitmap(state_[lo],src,dst,1.f-mix);
-            }
-            if(hi!=lo&&state_[hi]){
-                const VSTGUI::CRect src(0.,0.,state_[hi]->getWidth(),state_[hi]->getHeight());
-                ctx->fillRectWithBitmap(state_[hi],src,dst,mix);
-            }
+            ctx->fillRectWithBitmap(tube_,src,dst,1.f);
         }
         setDirty(false);
     }
 private:
-    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> state_;
-    VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
-    double phase_=0.;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
 };
 
 class DriveView final : public VSTGUI::CView {
