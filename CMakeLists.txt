@@ -52,12 +52,9 @@ smtg_target_add_plugin_resources(SaturatorMixFX
         resource/SMX3_Cell_MEDIUM.png
         resource/SMX3_Cell_HIGH.png
         resource/SMX3_Cell_PEAK.png
-        resource/SMX3_Tube_1.png
-        resource/SMX3_Tube_2.png
-        resource/SMX3_Tube_3.png
-        resource/SMX3_Tube_Glow_1.png
-        resource/SMX3_Tube_Glow_2.png
-        resource/SMX3_Tube_Glow_3.png
+        resource/SMX3_SCHWACH.png
+        resource/SMX3_MITTEL.png
+        resource/SMX3_STARK.png
         resource/SMX3_Base_Underlight.png
 )
 
