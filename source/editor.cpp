@@ -160,8 +160,7 @@ public:
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
 
-        // Optical centers measured from the current runtime screenshot.
-        // Keep the buttons fixed; only correct LED alignment.
+        // Known-good button geometry from Build #16.
         constexpr std::array<double,3> cx{{1090,1230,1370}};
         constexpr double cy = 770;
         constexpr double bw = 151;
@@ -170,32 +169,13 @@ public:
         constexpr double ledCy = 669;
         constexpr double ledXCorrection = -6;
 
-        // The active IN artwork exposes an unwanted bright upper rim when its
-        // full native canvas is shown. Draw the clean OUT seat first, then only
-        // overlay the lower IN portion where the actual depressed button lives.
-        constexpr double pressedOverlayTop = 42;
-
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
-            const double left = cx[i]-bw/2.0;
-            const double top = cy-bh/2.0;
-            const double right = cx[i]+bw/2.0;
-            const double bottom = cy+bh/2.0;
-
-            auto& outButton = button_[static_cast<size_t>(i*2)];
-            if (outButton) {
-                VSTGUI::CRect dst(left, top, right, bottom);
-                outButton->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+            auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
+            if (b) {
+                VSTGUI::CRect dst(cx[i]-bw/2.0, cy-bh/2.0, cx[i]+bw/2.0, cy+bh/2.0);
+                b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
-
-            if (pressed) {
-                auto& inButton = button_[static_cast<size_t>(i*2 + 1)];
-                if (inButton) {
-                    VSTGUI::CRect dst(left, top+pressedOverlayTop, right, bottom);
-                    inButton->draw(ctx, dst, VSTGUI::CPoint(0,pressedOverlayTop), 1.f);
-                }
-            }
-
             auto& lamp = pressed ? ledOn_ : ledOff_;
             if (lamp) {
                 const double ledCx = cx[i] + ledXCorrection;
