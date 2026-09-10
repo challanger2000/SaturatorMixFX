@@ -77,7 +77,7 @@ public:
         setMouseEnabled(false);
         timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
             [this](VSTGUI::CVSTGUITimer*) {
-                phase_ += 0.055;
+                phase_ += 0.070;
                 invalid();
             }, 50);
     }
@@ -87,26 +87,42 @@ public:
         if (!ctx) { setDirty(false); return; }
 
         constexpr std::array<double,3> cx{{421.0, 768.0, 1115.0}};
-        constexpr double tubeCy = 330.0;
+        constexpr double tubeCy = 322.0;
         constexpr double tubeW = 240.0;
         constexpr double tubeH = 390.0;
         constexpr double glowW = 260.0;
         constexpr double glowH = 260.0;
-        const std::array<double,3> phaseOffset{{0.0, 2.1, 4.4}};
-        const std::array<double,3> speed{{1.0, 0.83, 1.17}};
+        const std::array<double,3> phaseOffset{{0.0, 2.15, 4.55}};
+        const std::array<double,3> speed{{1.00, 0.79, 1.21}};
 
-        // Large blue halo first so the tube actually lights the black bay.
+        // Build a visibly larger light field from several native-size halo passes.
+        // This avoids relying on bitmap scaling and makes the breathing obvious in the black bay.
+        const std::array<VSTGUI::CPoint,5> haloOffset{{
+            VSTGUI::CPoint(-18.0,  0.0),
+            VSTGUI::CPoint( 18.0,  0.0),
+            VSTGUI::CPoint(  0.0,-18.0),
+            VSTGUI::CPoint(  0.0, 18.0),
+            VSTGUI::CPoint(  0.0,  0.0)
+        }};
+
         for (size_t i=0;i<3;++i) {
             if (!glow_[i]) continue;
-            double a = 0.72 + 0.20 * std::sin(phase_ * speed[i] + phaseOffset[i]);
-            a += 0.06 * std::sin(phase_ * 0.41 + phaseOffset[i] * 1.6);
-            a = std::clamp(a, 0.48, 0.98);
-            VSTGUI::CRect dst(cx[i]-glowW/2.0, tubeCy-glowH/2.0,
-                              cx[i]+glowW/2.0, tubeCy+glowH/2.0);
-            glow_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), static_cast<float>(a));
+
+            double breathe = 0.5 + 0.5 * std::sin(phase_ * speed[i] + phaseOffset[i]);
+            breathe = 0.15 + 0.85 * breathe;
+
+            for (size_t p=0; p<haloOffset.size(); ++p) {
+                const double passGain = (p == haloOffset.size()-1) ? 0.95 : 0.42;
+                const float alpha = static_cast<float>(std::clamp(breathe * passGain, 0.0, 1.0));
+                const double x = cx[i] + haloOffset[p].x;
+                const double y = tubeCy + haloOffset[p].y;
+                VSTGUI::CRect dst(x-glowW/2.0, y-glowH/2.0,
+                                  x+glowW/2.0, y+glowH/2.0);
+                glow_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), alpha);
+            }
         }
 
-        // New larger tube assets stay crisp at full opacity.
+        // Tube stays crisp while the surrounding light field breathes behind it.
         for (size_t i=0;i<3;++i) {
             if (!tube_[i]) continue;
             VSTGUI::CRect dst(cx[i]-tubeW/2.0, tubeCy-tubeH/2.0,
@@ -114,13 +130,13 @@ public:
             tube_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
         }
 
-        // A lighter second pass makes the slow independent breathing visible inside the glass.
+        // Small centre pulse over the glass gives a visible internal change as well.
         for (size_t i=0;i<3;++i) {
             if (!glow_[i]) continue;
-            const double a = 0.16 + 0.12 * (0.5 + 0.5 * std::sin(phase_ * speed[i] + phaseOffset[i]));
+            const double pulse = 0.08 + 0.34 * (0.5 + 0.5 * std::sin(phase_ * speed[i] + phaseOffset[i]));
             VSTGUI::CRect dst(cx[i]-glowW/2.0, tubeCy-glowH/2.0,
                               cx[i]+glowW/2.0, tubeCy+glowH/2.0);
-            glow_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), static_cast<float>(a));
+            glow_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), static_cast<float>(pulse));
         }
         setDirty(false);
     }
