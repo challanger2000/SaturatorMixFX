@@ -47,19 +47,24 @@ public:
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
-        constexpr double cy=322.,tubeW=300.,tubeH=380.;
+        constexpr double cy=322.,tubeW=280.,tubeH=340.;
 
-        // All three source states share exactly the same tube geometry.
-        // Only their illumination differs, so crossfading cannot move the tube.
         const double level=(0.5+0.5*std::sin(phase_))*2.;
         const int lo=std::clamp(static_cast<int>(std::floor(level)),0,2);
         const int hi=std::min(lo+1,2);
         const float mix=static_cast<float>(level-lo);
 
+        ctx->setBitmapInterpolationQuality(VSTGUI::CDrawContext::kHigh);
         for(size_t i=0;i<3;++i){
             const VSTGUI::CRect dst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
-            if(state_[lo])state_[lo]->draw(ctx,dst,{0,0},1.f-mix);
-            if(hi!=lo&&state_[hi])state_[hi]->draw(ctx,dst,{0,0},mix);
+            if(state_[lo]){
+                const VSTGUI::CRect src(0.,0.,state_[lo]->getWidth(),state_[lo]->getHeight());
+                ctx->fillRectWithBitmap(state_[lo],src,dst,1.f-mix);
+            }
+            if(hi!=lo&&state_[hi]){
+                const VSTGUI::CRect src(0.,0.,state_[hi]->getWidth(),state_[hi]->getHeight());
+                ctx->fillRectWithBitmap(state_[hi],src,dst,mix);
+            }
         }
         setDirty(false);
     }
@@ -72,7 +77,7 @@ private:
 class DriveView final : public VSTGUI::CView {
 public:
     DriveView(const VSTGUI::CRect&r,EditController*c):CView(r),controller_(c){ ring_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Drive_Ring_Blue.png")); knob_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Drive.png")); setMouseEnabled(true); timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){invalid();},33); }
-    void draw(VSTGUI::CDrawContext*ctx) override { if(!ctx||!controller_){setDirty(false);return;} auto r=getViewSize(); if(ring_)ring_->draw(ctx,r,{0,0},.92f); if(knob_)knob_->draw(ctx,r,{0,0},1.f); auto center=r.getCenter(); double v=std::clamp(controller_->getParamNormalized(kParamDrive),0.,1.); double a=(-135.+270.*v)*kPi/180.; VSTGUI::CPoint p0(center.x+std::sin(a)*84.,center.y-std::cos(a)*84.),p1(center.x+std::sin(a)*126.,center.y-std::cos(a)*126.); ctx->setDrawMode(VSTGUI::kAntiAliasing); ctx->setLineWidth(9.); ctx->setFrameColor({0,0,0,120}); ctx->drawLine({p0.x+2,p0.y+2},{p1.x+2,p1.y+2}); ctx->setLineWidth(5.5); ctx->setFrameColor({245,248,252,255}); ctx->drawLine(p0,p1); setDirty(false); }
+    void draw(VSTGUI::CDrawContext*ctx) override { if(!ctx||!controller_){setDirty(false);return;} auto r=getViewSize(); if(knob_)knob_->draw(ctx,r,{0,0},1.f); if(ring_)ring_->draw(ctx,r,{0,0},1.f); auto center=r.getCenter(); double v=std::clamp(controller_->getParamNormalized(kParamDrive),0.,1.); double a=(-135.+270.*v)*kPi/180.; VSTGUI::CPoint p0(center.x+std::sin(a)*84.,center.y-std::cos(a)*84.),p1(center.x+std::sin(a)*126.,center.y-std::cos(a)*126.); ctx->setDrawMode(VSTGUI::kAntiAliasing); ctx->setLineWidth(9.); ctx->setFrameColor({0,0,0,120}); ctx->drawLine({p0.x+2,p0.y+2},{p1.x+2,p1.y+2}); ctx->setLineWidth(5.5); ctx->setFrameColor({245,248,252,255}); ctx->drawLine(p0,p1); setDirty(false); }
     VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override { if(!controller_)return VSTGUI::kMouseEventNotHandled; dragging_=true; startY_=p.y; startValue_=controller_->getParamNormalized(kParamDrive); controller_->beginEdit(kParamDrive); return VSTGUI::kMouseEventHandled; }
     VSTGUI::CMouseEventResult onMouseMoved(VSTGUI::CPoint&p,const VSTGUI::CButtonState&b) override { if(!dragging_||!b.isLeftButton()||!controller_)return VSTGUI::kMouseEventNotHandled; auto v=std::clamp<ParamValue>(startValue_+(startY_-p.y)/300.,0.,1.); controller_->setParamNormalized(kParamDrive,v); controller_->performEdit(kParamDrive,v); invalid(); return VSTGUI::kMouseEventHandled; }
     VSTGUI::CMouseEventResult onMouseUp(VSTGUI::CPoint&,const VSTGUI::CButtonState&) override { if(dragging_&&controller_)controller_->endEdit(kParamDrive); dragging_=false; return VSTGUI::kMouseEventHandled; }
