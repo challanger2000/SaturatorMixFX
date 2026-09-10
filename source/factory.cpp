@@ -20,7 +20,7 @@ DEF_CLASS2(INLINE_UID_FROM_FUID(SaturatorMixFX::kProcessorUID),
            stringPluginName,
            Vst::kDistributable,
            "Fx|Distortion",
-           FULL_VERSION_STR,
+           SATURATORMIXFX_VERSION,
            kVstVersionString,
            SaturatorMixFX::Processor::createInstance)
 
@@ -30,7 +30,7 @@ DEF_CLASS2(INLINE_UID_FROM_FUID(SaturatorMixFX::kControllerUID),
            stringPluginName " Controller",
            0,
            "",
-           FULL_VERSION_STR,
+           SATURATORMIXFX_VERSION,
            kVstVersionString,
            SaturatorMixFX::Controller::createInstance)
 
