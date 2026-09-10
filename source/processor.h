@@ -6,7 +6,7 @@ namespace SaturatorMixFX {
 
 class Processor final : public Steinberg::Vst::AudioEffect {
 public:
-    Processor() = default;
+    Processor();
     ~Processor() SMTG_OVERRIDE = default;
 
     static Steinberg::FUnknown* createInstance(void*) {
@@ -27,11 +27,11 @@ private:
     float saturate(float x) const;
     float magic(float x, float saturated) const;
 
-    double onOff_ = 0.0;      // VST3 bypass: 0 = active, 1 = bypass
+    double onOff_ = 0.0;
     double drive_ = 0.30;
-    double character_ = 0.0;  // Triode default
+    double character_ = 0.0;
     double mix_ = 1.0;
-    double output_ = 0.75;    // 0 dB in current mapping
+    double output_ = 0.75;
 };
 
 } // namespace SaturatorMixFX
