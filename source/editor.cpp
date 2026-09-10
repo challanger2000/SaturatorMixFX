@@ -43,8 +43,7 @@ static bool isBypassed(EditController* c)
 
 class BitmapView final : public VSTGUI::CView {
 public:
-    BitmapView(const VSTGUI::CRect& r, const char* resource)
-    : CView(r)
+    BitmapView(const VSTGUI::CRect& r, const char* resource) : CView(r)
     {
         bitmap_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(resource));
         setMouseEnabled(false);
@@ -52,29 +51,21 @@ public:
 
     void draw(VSTGUI::CDrawContext* ctx) override
     {
-        if (ctx && bitmap_)
-            bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
+        if (ctx && bitmap_) bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
         setDirty(false);
     }
-
 private:
     VSTGUI::SharedPointer<VSTGUI::CBitmap> bitmap_;
 };
 
 class TubeGlowView final : public VSTGUI::CView {
 public:
-    explicit TubeGlowView(const VSTGUI::CRect& r)
-    : CView(r)
+    explicit TubeGlowView(const VSTGUI::CRect& r) : CView(r)
     {
         const std::array<const char*,3> names{{"TubeGlow_1.png","TubeGlow_2.png","TubeGlow_3.png"}};
-        for (int i=0;i<3;++i)
-            glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
+        for (int i=0;i<3;++i) glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
         setMouseEnabled(false);
-        timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
-            [this](VSTGUI::CVSTGUITimer*) {
-                phase_ += 0.055;
-                invalid();
-            }, 50);
+        timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*) { phase_ += 0.055; invalid(); }, 50);
     }
 
     void draw(VSTGUI::CDrawContext* ctx) override
@@ -92,7 +83,6 @@ public:
         }
         setDirty(false);
     }
-
 private:
     std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> glow_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
@@ -101,8 +91,7 @@ private:
 
 class DriveView final : public VSTGUI::CView {
 public:
-    DriveView(const VSTGUI::CRect& r, EditController* c)
-    : CView(r), controller_(c)
+    DriveView(const VSTGUI::CRect& r, EditController* c) : CView(r), controller_(c)
     {
         bitmap_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("Drive_Runtime.png"));
         setMouseEnabled(true);
@@ -110,8 +99,7 @@ public:
 
     void draw(VSTGUI::CDrawContext* ctx) override
     {
-        if (ctx && bitmap_)
-            bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
+        if (ctx && bitmap_) bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
         setDirty(false);
     }
 
@@ -127,8 +115,7 @@ public:
 
     VSTGUI::CMouseEventResult onMouseMoved(VSTGUI::CPoint& p, const VSTGUI::CButtonState& b) override
     {
-        if (!dragging_ || !b.isLeftButton() || !controller_)
-            return VSTGUI::kMouseEventNotHandled;
+        if (!dragging_ || !b.isLeftButton() || !controller_) return VSTGUI::kMouseEventNotHandled;
         const auto v = std::clamp<ParamValue>(startValue_ + (startY_ - p.y) / 300.0, 0.0, 1.0);
         controller_->setParamNormalized(kParamDrive, v);
         controller_->performEdit(kParamDrive, v);
@@ -142,7 +129,6 @@ public:
         dragging_ = false;
         return VSTGUI::kMouseEventHandled;
     }
-
 private:
     EditController* controller_ = nullptr;
     bool dragging_ = false;
@@ -153,8 +139,7 @@ private:
 
 class ModeView final : public VSTGUI::CView {
 public:
-    ModeView(const VSTGUI::CRect& r, EditController* c)
-    : CView(r), controller_(c)
+    ModeView(const VSTGUI::CRect& r, EditController* c) : CView(r), controller_(c)
     {
         const std::array<const char*,6> buttons{{
             "Triode_OUT_Runtime.png","Triode_IN_Runtime.png",
@@ -174,21 +159,28 @@ public:
         if (!ctx || !controller_) { setDirty(false); return; }
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
-        constexpr std::array<double,3> bx{{3,143,283}};
-        constexpr double by = 56;
-        constexpr std::array<double,3> lx{{38,178,318}};
-        constexpr double ly = 8;
+
+        // VSTGUI drawing uses the parent coordinate system for this custom view.
+        // These are the measured final-layout positions on the 1536x1024 faceplate.
+        constexpr std::array<double,3> bx{{1027,1167,1307}};
+        constexpr double by = 704;
+        constexpr std::array<double,3> lx{{1075,1215,1355}};
+        constexpr double ly = 654;
+        constexpr double bw = 126;
+        constexpr double bh = 132;
+        constexpr double led = 30;
+
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
             auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
             if (b) {
-                VSTGUI::CRect dst(bx[i], by, bx[i]+154, by+166);
-                b->draw(ctx,dst,VSTGUI::CPoint(0,0),1.f);
+                VSTGUI::CRect dst(bx[i], by, bx[i]+bw, by+bh);
+                b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
-            auto& led = pressed ? ledOn_ : ledOff_;
-            if (led) {
-                VSTGUI::CRect dst(lx[i],ly,lx[i]+42,ly+42);
-                led->draw(ctx,dst,VSTGUI::CPoint(0,0),1.f);
+            auto& lamp = pressed ? ledOn_ : ledOff_;
+            if (lamp) {
+                VSTGUI::CRect dst(lx[i], ly, lx[i]+led, ly+led);
+                lamp->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
         }
         setDirty(false);
@@ -197,10 +189,13 @@ public:
     VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint& p, const VSTGUI::CButtonState&) override
     {
         if (!controller_) return VSTGUI::kMouseEventNotHandled;
-        constexpr std::array<double,3> bx{{3,143,283}};
-        constexpr double by=56;
+        constexpr std::array<double,3> bx{{1027,1167,1307}};
+        constexpr double by = 704;
+        constexpr double bw = 126;
+        constexpr double bh = 132;
+
         for (int i=0;i<3;++i) {
-            if (p.x >= bx[i] && p.x < bx[i]+154 && p.y >= by && p.y < by+166) {
+            if (p.x >= bx[i] && p.x < bx[i]+bw && p.y >= by && p.y < by+bh) {
                 const bool bypass = isBypassed(controller_);
                 const int active = characterIndex(controller_);
                 if (!bypass && active == i) {
@@ -215,7 +210,6 @@ public:
         }
         return VSTGUI::kMouseEventHandled;
     }
-
 private:
     EditController* controller_ = nullptr;
     std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,6> button_;
@@ -250,7 +244,6 @@ public:
         invalid();
         return VSTGUI::kMouseEventHandled;
     }
-
 private:
     SMX3Editor* editor_ = nullptr;
 };
@@ -266,20 +259,19 @@ SMX3Editor::SMX3Editor(Steinberg::Vst::EditController* c)
 
 void SMX3Editor::setUserZoom(double f)
 {
-    if (f == .50 || f == .68)
-        setZoomFactor(f);
+    if (f == .50 || f == .68) setZoomFactor(f);
 }
 
 VSTGUI::CView* SMX3Editor::createView(const VSTGUI::UIAttributes& a,
                                       const VSTGUI::IUIDescription* d)
 {
     if (const auto n = a.getAttributeValue(VSTGUI::IUIDescription::kCustomViewName)) {
-        if (*n == "TubeGlow")  return new TubeGlowView({0,0,1536,450});
-        if (*n == "Nameplate") return new BitmapView({142,467,592,622}, "SMX3_Nameplate_Runtime.png");
+        if (*n == "TubeGlow") return new TubeGlowView({0,0,1536,450});
+        if (*n == "Nameplate") return new BitmapView({152,457,602,612}, "SMX3_Nameplate_Runtime.png");
         if (*n == "CompanyBadge") return new BitmapView({175,795,425,920}, "125A_Badge_Runtime.png");
-        if (*n == "Drive")     return new DriveView({563,496,993,926}, controller_);
-        if (*n == "Mode")      return new ModeView({1010,640,1455,890}, controller_);
-        if (*n == "UiZoom")    return new ZoomView({1370,70,1450,102}, this);
+        if (*n == "Drive") return new DriveView({563,496,993,926}, controller_);
+        if (*n == "Mode") return new ModeView({1010,640,1455,890}, controller_);
+        if (*n == "UiZoom") return new ZoomView({1370,70,1450,102}, this);
     }
     return VSTGUI::VST3Editor::createView(a,d);
 }
