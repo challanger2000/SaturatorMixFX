@@ -1,0 +1,40 @@
+name: Build Windows VST3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Checkout Steinberg VST3 SDK
+        uses: actions/checkout@v4
+        with:
+          repository: steinbergmedia/vst3sdk
+          path: vst3sdk
+          submodules: recursive
+
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/vst3sdk"
+          -DSMTG_CREATE_PLUGIN_LINK=0
+
+      - name: Build Release
+        run: cmake --build build --config Release --target SaturatorMixFX
+
+      - name: Upload VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaturatorMixFX-Windows-x64
+          path: build/**/*.vst3
+          if-no-files-found: error
