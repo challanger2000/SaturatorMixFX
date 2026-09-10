@@ -34,40 +34,37 @@ private: VSTGUI::SharedPointer<VSTGUI::CBitmap> bitmap_;
 class TubeGlowView final : public VSTGUI::CView {
 public:
     explicit TubeGlowView(const VSTGUI::CRect&r):CView(r) {
-        const std::array<const char*,3> tubes{{"SMX3_Tube_1.png","SMX3_Tube_2.png","SMX3_Tube_3.png"}};
-        const std::array<const char*,3> glows{{"SMX3_Tube_Glow_1.png","SMX3_Tube_Glow_2.png","SMX3_Tube_Glow_3.png"}};
-        for(size_t i=0;i<3;++i){
-            tube_[i]=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(tubes[i]));
-            glow_[i]=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(glows[i]));
-        }
+        const std::array<const char*,3> names{{"SMX3_SCHWACH.png","SMX3_MITTEL.png","SMX3_STARK.png"}};
+        for(size_t i=0;i<3;++i)
+            state_[i]=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
         setMouseEnabled(false);
         timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
-            phase_+=0.035;
-            if(phase_>=6.28318530717958647692)phase_-=6.28318530717958647692;
+            phase_+=0.03;
+            if(phase_>=2.*kPi)phase_-=2.*kPi;
             invalid();
         },50);
     }
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
-        constexpr double cy=322.,tubeW=240.,tubeH=390.,glowW=260.,glowH=260.;
+        constexpr double cy=322.,tubeW=300.,tubeH=380.;
 
-        // Fixed geometry: each tube is always drawn at exactly the same rectangle.
-        // Only the opacity of its own glow overlay changes slightly.
+        // All three source states share exactly the same tube geometry.
+        // Only their illumination differs, so crossfading cannot move the tube.
+        const double level=(0.5+0.5*std::sin(phase_))*2.;
+        const int lo=std::clamp(static_cast<int>(std::floor(level)),0,2);
+        const int hi=std::min(lo+1,2);
+        const float mix=static_cast<float>(level-lo);
+
         for(size_t i=0;i<3;++i){
-            VSTGUI::CRect tubeDst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
-            if(tube_[i])tube_[i]->draw(ctx,tubeDst,{0,0},1.f);
-
-            const double breathe=0.5+0.5*std::sin(phase_);
-            const float alpha=static_cast<float>(0.18+0.16*breathe);
-            VSTGUI::CRect glowDst(cx[i]-glowW/2.,cy-glowH/2.,cx[i]+glowW/2.,cy+glowH/2.);
-            if(glow_[i])glow_[i]->draw(ctx,glowDst,{0,0},alpha);
+            const VSTGUI::CRect dst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
+            if(state_[lo])state_[lo]->draw(ctx,dst,{0,0},1.f-mix);
+            if(hi!=lo&&state_[hi])state_[hi]->draw(ctx,dst,{0,0},mix);
         }
         setDirty(false);
     }
 private:
-    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> tube_;
-    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> glow_;
+    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> state_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
     double phase_=0.;
 };
