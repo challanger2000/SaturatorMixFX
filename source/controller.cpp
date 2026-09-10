@@ -1,8 +1,11 @@
 #include "controller.h"
+#include "editor.h"
 #include "pluginids.h"
 
 #include "base/source/fstreamer.h"
 #include "public.sdk/source/vst/vstparameters.h"
+
+#include <cstring>
 
 namespace SaturatorMixFX {
 
@@ -14,7 +17,8 @@ tresult PLUGIN_API Controller::initialize(FUnknown* context) {
     if (result != kResultOk)
         return result;
 
-    parameters.addParameter(STR16("On/Off"), nullptr, 1, 1.0,
+    // VST3 bypass convention: 0 = processing active, 1 = bypass.
+    parameters.addParameter(STR16("Bypass"), nullptr, 1, 0.0,
         ParameterInfo::kCanAutomate | ParameterInfo::kIsBypass, kParamOnOff);
 
     parameters.addParameter(STR16("Drive"), nullptr, 0, 0.30,
@@ -29,7 +33,8 @@ tresult PLUGIN_API Controller::initialize(FUnknown* context) {
     parameters.addParameter(STR16("Mix"), STR16("%"), 0, 1.0,
         ParameterInfo::kCanAutomate, kParamMix);
 
-    parameters.addParameter(STR16("Output"), STR16("dB"), 0, 0.50,
+    // 0.75 maps to 0 dB with the current -18..+6 dB processor range.
+    parameters.addParameter(STR16("Output"), STR16("dB"), 0, 0.75,
         ParameterInfo::kCanAutomate, kParamOutput);
 
     return kResultOk;
@@ -40,20 +45,26 @@ tresult PLUGIN_API Controller::setComponentState(IBStream* state) {
         return kResultFalse;
 
     IBStreamer streamer(state, kLittleEndian);
-    double onOff = 1.0, drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
-    if (!streamer.readDouble(onOff) ||
+    double bypass = 0.0, drive = 0.30, character = 0.0, mix = 1.0, output = 0.75;
+    if (!streamer.readDouble(bypass) ||
         !streamer.readDouble(drive) ||
         !streamer.readDouble(character) ||
         !streamer.readDouble(mix) ||
         !streamer.readDouble(output))
         return kResultFalse;
 
-    setParamNormalized(kParamOnOff, onOff);
+    setParamNormalized(kParamOnOff, bypass);
     setParamNormalized(kParamDrive, drive);
     setParamNormalized(kParamCharacter, character);
     setParamNormalized(kParamMix, mix);
     setParamNormalized(kParamOutput, output);
     return kResultOk;
+}
+
+IPlugView* PLUGIN_API Controller::createView(FIDString name) {
+    if (name && std::strcmp(name, ViewType::kEditor) == 0)
+        return new SMX3Editor(this);
+    return nullptr;
 }
 
 } // namespace SaturatorMixFX
