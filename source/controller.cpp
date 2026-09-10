@@ -14,6 +14,9 @@ tresult PLUGIN_API Controller::initialize(FUnknown* context) {
     if (result != kResultOk)
         return result;
 
+    parameters.addParameter(STR16("On/Off"), nullptr, 1, 1.0,
+        ParameterInfo::kCanAutomate | ParameterInfo::kIsBypass, kParamOnOff);
+
     parameters.addParameter(STR16("Drive"), nullptr, 0, 0.30,
         ParameterInfo::kCanAutomate, kParamDrive);
 
@@ -37,13 +40,15 @@ tresult PLUGIN_API Controller::setComponentState(IBStream* state) {
         return kResultFalse;
 
     IBStreamer streamer(state, kLittleEndian);
-    double drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
-    if (!streamer.readDouble(drive) ||
+    double onOff = 1.0, drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
+    if (!streamer.readDouble(onOff) ||
+        !streamer.readDouble(drive) ||
         !streamer.readDouble(character) ||
         !streamer.readDouble(mix) ||
         !streamer.readDouble(output))
         return kResultFalse;
 
+    setParamNormalized(kParamOnOff, onOff);
     setParamNormalized(kParamDrive, drive);
     setParamNormalized(kParamCharacter, character);
     setParamNormalized(kParamMix, mix);
