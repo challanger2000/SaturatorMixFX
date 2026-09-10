@@ -42,20 +42,18 @@ smtg_target_add_plugin_resources(SaturatorMixFX
     RESOURCES
         resource/SMX3.uidesc
         resource/SMX3_MainGUI.png
-        resource/SMX3_Nameplate_Runtime.png
-        resource/125A_Badge_Runtime.png
-        resource/Drive_Runtime.png
-        resource/Triode_OUT_Runtime.png
-        resource/Triode_IN_Runtime.png
-        resource/Pentode_OUT_Runtime.png
-        resource/Pentode_IN_Runtime.png
-        resource/Iron_OUT_Runtime.png
-        resource/Iron_IN_Runtime.png
-        resource/LED_Amber_OFF_Runtime.png
-        resource/LED_Amber_ON_Runtime.png
-        resource/TubeGlow_1.png
-        resource/TubeGlow_2.png
-        resource/TubeGlow_3.png
+        resource/SMX3_Drive.png
+        resource/SMX3_Drive_Ring_Blue.png
+        resource/SMX3_Button_OFF.png
+        resource/SMX3_Button_PRESSED.png
+        resource/SMX3_Button_Ring_Blue.png
+        resource/SMX3_Tube_1.png
+        resource/SMX3_Tube_2.png
+        resource/SMX3_Tube_3.png
+        resource/SMX3_Tube_Glow_1.png
+        resource/SMX3_Tube_Glow_2.png
+        resource/SMX3_Tube_Glow_3.png
+        resource/SMX3_Base_Underlight.png
 )
 
 smtg_target_configure_version_file(SaturatorMixFX)
