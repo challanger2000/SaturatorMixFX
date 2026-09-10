@@ -40,7 +40,7 @@ public:
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx||!tube_){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
-        constexpr double cy=322.,tubeW=280.,tubeH=340.;
+        constexpr double cy=322.,tubeW=190.,tubeH=280.;
         const VSTGUI::CRect src(0.,0.,tube_->getWidth(),tube_->getHeight());
         for(size_t i=0;i<3;++i){
             const VSTGUI::CRect dst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
