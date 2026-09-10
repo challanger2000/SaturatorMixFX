@@ -31,7 +31,3 @@ target_link_libraries(SaturatorMixFX PRIVATE sdk)
 target_compile_definitions(SaturatorMixFX PRIVATE
     SATURATORMIXFX_VERSION="${PROJECT_VERSION}"
 )
-
-if(SMTG_WIN)
-    target_sources(SaturatorMixFX PRIVATE resource/win32resource.rc)
-endif()
