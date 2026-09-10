@@ -19,7 +19,7 @@ DEF_CLASS2(INLINE_UID_FROM_FUID(SaturatorMixFX::kProcessorUID),
            kVstAudioEffectClass,
            stringPluginName,
            Vst::kDistributable,
-           "Fx|Distortion",
+           Vst::PlugType::kFx,
            SATURATORMIXFX_VERSION,
            kVstVersionString,
            SaturatorMixFX::Processor::createInstance)
