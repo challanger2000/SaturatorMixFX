@@ -110,7 +110,7 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
     auto& out = data.outputs[0];
     const int32 channels = std::min(in.numChannels, out.numChannels);
 
-    const bool enabled = onOff_ >= 0.5;
+    const bool bypassed = onOff_ >= 0.5;
     const float wet = static_cast<float>(mix_);
     const float dry = 1.0f - wet;
     const float outputDb = -18.0f + static_cast<float>(output_) * 24.0f;
@@ -122,7 +122,7 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         if (!src || !dst)
             continue;
 
-        if (!enabled) {
+        if (bypassed) {
             std::copy(src, src + data.numSamples, dst);
             continue;
         }
@@ -143,15 +143,15 @@ tresult PLUGIN_API Processor::setState(IBStream* state) {
         return kResultFalse;
 
     IBStreamer streamer(state, kLittleEndian);
-    double onOff = 1.0, drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
-    if (!streamer.readDouble(onOff) ||
+    double bypass = 0.0, drive = 0.30, character = 0.0, mix = 1.0, output = 0.75;
+    if (!streamer.readDouble(bypass) ||
         !streamer.readDouble(drive) ||
         !streamer.readDouble(character) ||
         !streamer.readDouble(mix) ||
         !streamer.readDouble(output))
         return kResultFalse;
 
-    onOff_ = clamp01(onOff);
+    onOff_ = clamp01(bypass);
     drive_ = clamp01(drive);
     character_ = clamp01(character);
     mix_ = clamp01(mix);
