@@ -37,26 +37,26 @@ public:
         const std::array<const char*,5> names{{"SMX3_Cell_OFF.png","SMX3_Cell_LOW.png","SMX3_Cell_MEDIUM.png","SMX3_Cell_HIGH.png","SMX3_Cell_PEAK.png"}};
         for(size_t i=0;i<5;++i) state_[i]=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
         setMouseEnabled(false);
-        timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){ phase_+=0.050; invalid(); },50);
+        timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
+            phase_ += 0.050;
+            if(phase_ >= 6.28318530717958647692) phase_ -= 6.28318530717958647692;
+            invalid();
+        },50);
     }
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
         constexpr double cy=322., w=280., h=420.;
-        const std::array<double,3> po{{0.,2.10,4.35}}, sp{{1.00,.83,1.17}};
+
+        // Fixed-cell animation: all three SMX cells stay at their exact positions.
+        // Only one of the five pre-rendered brightness states is selected.
+        // No phase offsets, no crossfades, no travelling hotspot.
+        const double pulse = 0.5 + 0.5 * std::sin(phase_);
+        const int stateIndex = std::clamp(static_cast<int>(std::lround(pulse * 4.0)),0,4);
+
         for(size_t i=0;i<3;++i){
-            // Organic thermal cycle: never fully off while the unit is powered.
-            double s=std::sin(phase_*sp[i]+po[i]);
-            double slow=std::sin(phase_*.37+po[i]*1.31);
-            double level=.5+.5*s;
-            level=.18+.82*std::clamp(level*.82+(.5+.5*slow)*.18,0.,1.);
-            double pos=level*3.999; // LOW..PEAK, OFF reserved as visual safety fallback
-            int lo=1+std::clamp(static_cast<int>(std::floor(pos)),0,3);
-            int hi=std::min(lo+1,4);
-            float blend=static_cast<float>(pos-std::floor(pos));
             VSTGUI::CRect dst(cx[i]-w/2.,cy-h/2.,cx[i]+w/2.,cy+h/2.);
-            if(state_[lo]) state_[lo]->draw(ctx,dst,{0,0},1.f);
-            if(hi!=lo && state_[hi]) state_[hi]->draw(ctx,dst,{0,0},blend);
+            if(state_[stateIndex]) state_[stateIndex]->draw(ctx,dst,{0,0},1.f);
         }
         setDirty(false);
     }
