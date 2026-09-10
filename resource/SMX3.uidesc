@@ -5,7 +5,7 @@
   </bitmaps>
   <template name="view" class="CViewContainer" size="1536,1024" bitmap="MainGUI">
     <view class="CView" size="0,0,1536,450" custom-view-name="TubeGlow" transparent="true"/>
-    <view class="CView" size="142,467,592,622" custom-view-name="Nameplate" transparent="true"/>
+    <view class="CView" size="152,457,602,612" custom-view-name="Nameplate" transparent="true"/>
     <view class="CView" size="175,795,425,920" custom-view-name="CompanyBadge" transparent="true"/>
     <view class="CView" size="563,496,993,926" custom-view-name="Drive" transparent="true"/>
     <view class="CView" size="1010,640,1455,890" custom-view-name="Mode" transparent="true"/>
