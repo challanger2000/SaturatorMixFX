@@ -60,17 +60,17 @@ void Processor::readParameterChanges(IParameterChanges* changes) {
             continue;
 
         switch (queue->getParameterId()) {
-            case kParamDrive:     drive_ = clamp01(value); break;
-            case kParamCharacter: character_ = clamp01(value); break;
-            case kParamMix:       mix_ = clamp01(value); break;
-            case kParamOutput:    output_ = clamp01(value); break;
+            case kParamOnOff:      onOff_ = clamp01(value); break;
+            case kParamDrive:      drive_ = clamp01(value); break;
+            case kParamCharacter:  character_ = clamp01(value); break;
+            case kParamMix:        mix_ = clamp01(value); break;
+            case kParamOutput:     output_ = clamp01(value); break;
             default: break;
         }
     }
 }
 
 float Processor::saturate(float x) const {
-    // Drive maps to approximately 1x .. 16x internal gain.
     const float gain = std::pow(16.0f, static_cast<float>(drive_));
     const float driven = x * gain;
     const int mode = std::clamp(static_cast<int>(std::lround(character_ * 2.0)), 0, 2);
@@ -78,18 +78,15 @@ float Processor::saturate(float x) const {
     float y = driven;
     switch (mode) {
         case kTriode: {
-            // Soft asymmetric curve: warmer, stronger even harmonics.
             const float biased = driven + 0.18f;
             y = std::tanh(biased) - std::tanh(0.18f);
             break;
         }
         case kPentode:
-            // Harder symmetric transfer for more bite / odd harmonics.
             y = std::tanh(driven * 1.55f);
             break;
         case kIron:
         default: {
-            // Rounded magnetic-style soft clipping with gentle compression.
             const float a = std::abs(driven);
             y = driven / (1.0f + 0.62f * a);
             y = std::tanh(y * 1.18f);
@@ -97,7 +94,6 @@ float Processor::saturate(float x) const {
         }
     }
 
-    // Approximate gain compensation so Drive does not merely become louder.
     const float compensation = 1.0f / std::sqrt(gain);
     return y * compensation;
 }
@@ -114,9 +110,9 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
     auto& out = data.outputs[0];
     const int32 channels = std::min(in.numChannels, out.numChannels);
 
+    const bool enabled = onOff_ >= 0.5;
     const float wet = static_cast<float>(mix_);
     const float dry = 1.0f - wet;
-    // Output maps to -18 dB .. +6 dB; midpoint is about -6 dB for safe headroom.
     const float outputDb = -18.0f + static_cast<float>(output_) * 24.0f;
     const float outputGain = std::pow(10.0f, outputDb / 20.0f);
 
@@ -125,6 +121,11 @@ tresult PLUGIN_API Processor::process(ProcessData& data) {
         float* dst = out.channelBuffers32[ch];
         if (!src || !dst)
             continue;
+
+        if (!enabled) {
+            std::copy(src, src + data.numSamples, dst);
+            continue;
+        }
 
         for (int32 s = 0; s < data.numSamples; ++s) {
             const float x = src[s];
@@ -142,13 +143,15 @@ tresult PLUGIN_API Processor::setState(IBStream* state) {
         return kResultFalse;
 
     IBStreamer streamer(state, kLittleEndian);
-    double drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
-    if (!streamer.readDouble(drive) ||
+    double onOff = 1.0, drive = 0.0, character = 0.0, mix = 0.0, output = 0.0;
+    if (!streamer.readDouble(onOff) ||
+        !streamer.readDouble(drive) ||
         !streamer.readDouble(character) ||
         !streamer.readDouble(mix) ||
         !streamer.readDouble(output))
         return kResultFalse;
 
+    onOff_ = clamp01(onOff);
     drive_ = clamp01(drive);
     character_ = clamp01(character);
     mix_ = clamp01(mix);
@@ -161,6 +164,7 @@ tresult PLUGIN_API Processor::getState(IBStream* state) {
         return kResultFalse;
 
     IBStreamer streamer(state, kLittleEndian);
+    streamer.writeDouble(onOff_);
     streamer.writeDouble(drive_);
     streamer.writeDouble(character_);
     streamer.writeDouble(mix_);
