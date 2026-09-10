@@ -168,13 +168,27 @@ public:
         constexpr double bh = 158;
         constexpr double led = 34;
         constexpr double ledCy = 669;
+        constexpr double pressedTopClip = 18;
 
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
             auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
             if (b) {
-                VSTGUI::CRect dst(cx[i]-bw/2.0, cy-bh/2.0, cx[i]+bw/2.0, cy+bh/2.0);
-                b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+                const double left = cx[i]-bw/2.0;
+                const double top = cy-bh/2.0;
+                const double right = cx[i]+bw/2.0;
+                const double bottom = cy+bh/2.0;
+
+                if (pressed) {
+                    // The IN artwork contains an unwanted bright rim in its
+                    // top strip. Skip only that strip and keep the remaining
+                    // artwork in exactly the same faceplate coordinates.
+                    VSTGUI::CRect dst(left, top+pressedTopClip, right, bottom);
+                    b->draw(ctx, dst, VSTGUI::CPoint(0,pressedTopClip), 1.f);
+                } else {
+                    VSTGUI::CRect dst(left, top, right, bottom);
+                    b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+                }
             }
             auto& lamp = pressed ? ledOn_ : ledOff_;
             if (lamp) {
