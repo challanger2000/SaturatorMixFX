@@ -53,7 +53,7 @@ set "BUILD_DIR=%PROJECT_DIR%\build-local"
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 echo [1/2] CMake konfigurieren...
-cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DVST3_SDK_ROOT="%SDK%"
+cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "Visual Studio 18 2026" -A x64 -DVST3_SDK_ROOT="%SDK%"
 if errorlevel 1 goto :fail
 
 echo.
