@@ -160,26 +160,25 @@ public:
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
 
-        // VSTGUI drawing uses the parent coordinate system for this custom view.
-        // These are the measured final-layout positions on the 1536x1024 faceplate.
-        constexpr std::array<double,3> bx{{1027,1167,1307}};
-        constexpr double by = 704;
-        constexpr std::array<double,3> lx{{1075,1215,1355}};
-        constexpr double ly = 654;
-        constexpr double bw = 126;
-        constexpr double bh = 132;
-        constexpr double led = 30;
+        // Keep the measured V5 centers fixed while enlarging the complete
+        // button/seat artwork by 20%. This prevents the controls from drifting.
+        constexpr std::array<double,3> cx{{1090,1230,1370}};
+        constexpr double cy = 770;
+        constexpr double bw = 151;
+        constexpr double bh = 158;
+        constexpr double led = 34;
+        constexpr double ledCy = 669;
 
         for (int i=0;i<3;++i) {
             const bool pressed = !bypass && active == i;
             auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
             if (b) {
-                VSTGUI::CRect dst(bx[i], by, bx[i]+bw, by+bh);
+                VSTGUI::CRect dst(cx[i]-bw/2.0, cy-bh/2.0, cx[i]+bw/2.0, cy+bh/2.0);
                 b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
             auto& lamp = pressed ? ledOn_ : ledOff_;
             if (lamp) {
-                VSTGUI::CRect dst(lx[i], ly, lx[i]+led, ly+led);
+                VSTGUI::CRect dst(cx[i]-led/2.0, ledCy-led/2.0, cx[i]+led/2.0, ledCy+led/2.0);
                 lamp->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
             }
         }
@@ -189,13 +188,14 @@ public:
     VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint& p, const VSTGUI::CButtonState&) override
     {
         if (!controller_) return VSTGUI::kMouseEventNotHandled;
-        constexpr std::array<double,3> bx{{1027,1167,1307}};
-        constexpr double by = 704;
-        constexpr double bw = 126;
-        constexpr double bh = 132;
+        constexpr std::array<double,3> cx{{1090,1230,1370}};
+        constexpr double cy = 770;
+        constexpr double bw = 151;
+        constexpr double bh = 158;
 
         for (int i=0;i<3;++i) {
-            if (p.x >= bx[i] && p.x < bx[i]+bw && p.y >= by && p.y < by+bh) {
+            if (p.x >= cx[i]-bw/2.0 && p.x < cx[i]+bw/2.0 &&
+                p.y >= cy-bh/2.0 && p.y < cy+bh/2.0) {
                 const bool bypass = isBypassed(controller_);
                 const int active = characterIndex(controller_);
                 if (!bypass && active == i) {
