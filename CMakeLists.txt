@@ -23,10 +23,40 @@ smtg_add_vst3plugin(SaturatorMixFX
     source/processor.cpp
     source/controller.h
     source/controller.cpp
+    source/editor.h
+    source/editor.cpp
     source/factory.cpp
 )
 
-target_link_libraries(SaturatorMixFX PRIVATE sdk)
+target_link_libraries(SaturatorMixFX PRIVATE sdk vstgui_support)
+
+if(WIN32)
+    target_sources(SaturatorMixFX PRIVATE
+        ${vst3sdk_SOURCE_DIR}/public.sdk/source/main/dllmain.cpp
+    )
+endif()
+
+smtg_target_add_plugin_resources(SaturatorMixFX
+    RESOURCES
+        resource/SMX3.uidesc
+        resource/SMX3_MainGUI.png
+        resource/SMX3_Nameplate_Runtime.png
+        resource/125A_Badge_Runtime.png
+        resource/Drive_Runtime.png
+        resource/Triode_OUT_Runtime.png
+        resource/Triode_IN_Runtime.png
+        resource/Pentode_OUT_Runtime.png
+        resource/Pentode_IN_Runtime.png
+        resource/Iron_OUT_Runtime.png
+        resource/Iron_IN_Runtime.png
+        resource/LED_Amber_OFF_Runtime.png
+        resource/LED_Amber_ON_Runtime.png
+        resource/TubeGlow_1.png
+        resource/TubeGlow_2.png
+        resource/TubeGlow_3.png
+)
+
+smtg_target_configure_version_file(SaturatorMixFX)
 
 target_compile_definitions(SaturatorMixFX PRIVATE
     SATURATORMIXFX_VERSION="${PROJECT_VERSION}"
