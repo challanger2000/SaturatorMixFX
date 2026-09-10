@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstring>
 
 namespace SaturatorMixFX {
 namespace {
@@ -19,6 +18,8 @@ namespace {
 using Steinberg::Vst::EditController;
 using Steinberg::Vst::ParamID;
 using Steinberg::Vst::ParamValue;
+
+constexpr double kPi = 3.14159265358979323846;
 
 static void setParameter(EditController* c, ParamID id, ParamValue v)
 {
@@ -54,6 +55,7 @@ public:
         if (ctx && bitmap_) bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
         setDirty(false);
     }
+
 private:
     VSTGUI::SharedPointer<VSTGUI::CBitmap> bitmap_;
 };
@@ -62,14 +64,19 @@ class TubeGlowView final : public VSTGUI::CView {
 public:
     explicit TubeGlowView(const VSTGUI::CRect& r) : CView(r)
     {
-        const std::array<const char*,3> names{{"TubeGlow_1.png","TubeGlow_2.png","TubeGlow_3.png"}};
-        for (int i=0;i<3;++i)
-            glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(names[i]));
+        const std::array<const char*,3> tubes{{
+            "SMX3_Tube_1.png", "SMX3_Tube_2.png", "SMX3_Tube_3.png"
+        }};
+        const std::array<const char*,3> glows{{
+            "SMX3_Tube_Glow_1.png", "SMX3_Tube_Glow_2.png", "SMX3_Tube_Glow_3.png"
+        }};
+        for (size_t i=0;i<3;++i) {
+            tube_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(tubes[i]));
+            glow_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(glows[i]));
+        }
         setMouseEnabled(false);
         timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
             [this](VSTGUI::CVSTGUITimer*) {
-                // Slow, independent heater drift. Deliberately not tied to audio,
-                // DRIVE or the selected saturation mode.
                 phase_ += 0.025;
                 invalid();
             }, 50);
@@ -79,22 +86,37 @@ public:
     {
         if (!ctx) { setDirty(false); return; }
 
+        constexpr std::array<double,3> cx{{421.0, 768.0, 1115.0}};
+        constexpr double tubeCy = 337.0;
+        constexpr double tubeW = 190.0;
+        constexpr double tubeH = 330.0;
+        constexpr double glowW = 190.0;
+        constexpr double glowH = 270.0;
         const std::array<double,3> phaseOffset{{0.0, 2.1, 4.4}};
         const std::array<double,3> speed{{1.0, 0.83, 1.17}};
-        const VSTGUI::CRect full(0,0,1536,1024);
 
-        for (int i=0;i<3;++i) {
+        for (size_t i=0;i<3;++i) {
+            if (tube_[i]) {
+                VSTGUI::CRect dst(cx[i]-tubeW/2.0, tubeCy-tubeH/2.0,
+                                  cx[i]+tubeW/2.0, tubeCy+tubeH/2.0);
+                tube_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+            }
+        }
+
+        for (size_t i=0;i<3;++i) {
             if (!glow_[i]) continue;
-
-            // Visible but restrained shimmer: no blinking and no common pulse.
-            double a = 0.34 + 0.10 * std::sin(phase_ * speed[i] + phaseOffset[i]);
+            double a = 0.62 + 0.08 * std::sin(phase_ * speed[i] + phaseOffset[i]);
             a += 0.025 * std::sin(phase_ * 0.37 + phaseOffset[i] * 1.7);
-            a = std::clamp(a, 0.20, 0.50);
-            glow_[i]->draw(ctx, full, VSTGUI::CPoint(0,0), static_cast<float>(a));
+            a = std::clamp(a, 0.50, 0.74);
+            VSTGUI::CRect dst(cx[i]-glowW/2.0, tubeCy-glowH/2.0,
+                              cx[i]+glowW/2.0, tubeCy+glowH/2.0);
+            glow_[i]->draw(ctx, dst, VSTGUI::CPoint(0,0), static_cast<float>(a));
         }
         setDirty(false);
     }
+
 private:
+    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> tube_;
     std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,3> glow_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
     double phase_ = 0.0;
@@ -104,13 +126,33 @@ class DriveView final : public VSTGUI::CView {
 public:
     DriveView(const VSTGUI::CRect& r, EditController* c) : CView(r), controller_(c)
     {
-        bitmap_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("Drive_Runtime.png"));
+        ring_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Drive_Ring_Blue.png"));
+        knob_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Drive.png"));
         setMouseEnabled(true);
+        timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*) { invalid(); }, 33);
     }
 
     void draw(VSTGUI::CDrawContext* ctx) override
     {
-        if (ctx && bitmap_) bitmap_->draw(ctx, getViewSize(), VSTGUI::CPoint(0,0), 1.f);
+        if (!ctx || !controller_) { setDirty(false); return; }
+        const auto r = getViewSize();
+        if (ring_) ring_->draw(ctx, r, VSTGUI::CPoint(0,0), 0.92f);
+        if (knob_) knob_->draw(ctx, r, VSTGUI::CPoint(0,0), 1.f);
+
+        const auto center = r.getCenter();
+        const double v = std::clamp(controller_->getParamNormalized(kParamDrive), 0.0, 1.0);
+        const double a = (-135.0 + 270.0 * v) * kPi / 180.0;
+        const VSTGUI::CPoint p0(center.x + std::sin(a) * 84.0,
+                                center.y - std::cos(a) * 84.0);
+        const VSTGUI::CPoint p1(center.x + std::sin(a) * 126.0,
+                                center.y - std::cos(a) * 126.0);
+        ctx->setDrawMode(VSTGUI::kAntiAliasing);
+        ctx->setLineWidth(9.0);
+        ctx->setFrameColor(VSTGUI::CColor(0, 0, 0, 120));
+        ctx->drawLine(VSTGUI::CPoint(p0.x+2,p0.y+2), VSTGUI::CPoint(p1.x+2,p1.y+2));
+        ctx->setLineWidth(5.5);
+        ctx->setFrameColor(VSTGUI::CColor(245, 248, 252, 255));
+        ctx->drawLine(p0, p1);
         setDirty(false);
     }
 
@@ -140,27 +182,24 @@ public:
         dragging_ = false;
         return VSTGUI::kMouseEventHandled;
     }
+
 private:
     EditController* controller_ = nullptr;
     bool dragging_ = false;
     double startY_ = 0.0;
     ParamValue startValue_ = 0.30;
-    VSTGUI::SharedPointer<VSTGUI::CBitmap> bitmap_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> ring_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> knob_;
+    VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
 };
 
 class ModeView final : public VSTGUI::CView {
 public:
     ModeView(const VSTGUI::CRect& r, EditController* c) : CView(r), controller_(c)
     {
-        const std::array<const char*,6> buttons{{
-            "Triode_OUT_Runtime.png","Triode_IN_Runtime.png",
-            "Pentode_OUT_Runtime.png","Pentode_IN_Runtime.png",
-            "Iron_OUT_Runtime.png","Iron_IN_Runtime.png"
-        }};
-        for (size_t i=0;i<buttons.size();++i)
-            button_[i] = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription(buttons[i]));
-        ledOff_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("LED_Amber_OFF_Runtime.png"));
-        ledOn_  = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("LED_Amber_ON_Runtime.png"));
+        off_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_OFF.png"));
+        pressed_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_PRESSED.png"));
+        ring_ = VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_Ring_Blue.png"));
         setMouseEnabled(true);
         timer_ = VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*) { invalid(); }, 50);
     }
@@ -170,52 +209,17 @@ public:
         if (!ctx || !controller_) { setDirty(false); return; }
         const bool bypass = isBypassed(controller_);
         const int active = characterIndex(controller_);
-
-        // Final measured button geometry. Do not move the switches here.
-        constexpr std::array<double,3> cx{{1090,1230,1370}};
-        constexpr double cy = 770;
-        constexpr double bw = 151;
-        constexpr double bh = 158;
-        constexpr double led = 34;
-        constexpr double ledCy = 669;
-        constexpr double ledXCorrection = -6;
-
-        // Only the shallow decorative rim at the very top of the IN artwork is
-        // replaced with the clean OUT artwork. The actual depressed switch,
-        // bezel and label remain the complete IN state.
-        constexpr double cleanRimHeight = 24;
+        constexpr std::array<double,3> cx{{1065.0, 1231.0, 1398.0}};
+        constexpr double cy = 742.0;
+        constexpr double size = 130.0;
 
         for (int i=0;i<3;++i) {
-            const bool pressed = !bypass && active == i;
-            const double left = cx[i]-bw/2.0;
-            const double top = cy-bh/2.0;
-            const double right = cx[i]+bw/2.0;
-            const double bottom = cy+bh/2.0;
-
-            auto& b = button_[static_cast<size_t>(i*2 + (pressed ? 1 : 0))];
-            if (b) {
-                VSTGUI::CRect dst(left, top, right, bottom);
-                b->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
-            }
-
-            if (pressed) {
-                auto& clean = button_[static_cast<size_t>(i*2)];
-                if (clean) {
-                    // Mask only the unwanted floating arc/rim. This does not
-                    // touch the switch body and therefore cannot flatten the
-                    // pressed state as the previous broad overlay did.
-                    VSTGUI::CRect rim(left, top, right, top + cleanRimHeight);
-                    clean->draw(ctx, rim, VSTGUI::CPoint(0,0), 1.f);
-                }
-            }
-
-            auto& lamp = pressed ? ledOn_ : ledOff_;
-            if (lamp) {
-                const double ledCx = cx[i] + ledXCorrection;
-                VSTGUI::CRect dst(ledCx-led/2.0, ledCy-led/2.0,
-                                  ledCx+led/2.0, ledCy+led/2.0);
-                lamp->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
-            }
+            const bool on = !bypass && active == i;
+            VSTGUI::CRect dst(cx[i]-size/2.0, cy-size/2.0,
+                              cx[i]+size/2.0, cy+size/2.0);
+            auto& body = on ? pressed_ : off_;
+            if (body) body->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
+            if (on && ring_) ring_->draw(ctx, dst, VSTGUI::CPoint(0,0), 1.f);
         }
         setDirty(false);
     }
@@ -223,14 +227,14 @@ public:
     VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint& p, const VSTGUI::CButtonState&) override
     {
         if (!controller_) return VSTGUI::kMouseEventNotHandled;
-        constexpr std::array<double,3> cx{{1090,1230,1370}};
-        constexpr double cy = 770;
-        constexpr double bw = 151;
-        constexpr double bh = 158;
+        constexpr std::array<double,3> cx{{1065.0, 1231.0, 1398.0}};
+        constexpr double cy = 742.0;
+        constexpr double size = 130.0;
 
         for (int i=0;i<3;++i) {
-            if (p.x >= cx[i]-bw/2.0 && p.x < cx[i]+bw/2.0 &&
-                p.y >= cy-bh/2.0 && p.y < cy+bh/2.0) {
+            const double dx = p.x - cx[i];
+            const double dy = p.y - cy;
+            if (dx*dx + dy*dy <= (size*0.5)*(size*0.5)) {
                 const bool bypass = isBypassed(controller_);
                 const int active = characterIndex(controller_);
                 if (!bypass && active == i) {
@@ -245,11 +249,12 @@ public:
         }
         return VSTGUI::kMouseEventHandled;
     }
+
 private:
     EditController* controller_ = nullptr;
-    std::array<VSTGUI::SharedPointer<VSTGUI::CBitmap>,6> button_;
-    VSTGUI::SharedPointer<VSTGUI::CBitmap> ledOff_;
-    VSTGUI::SharedPointer<VSTGUI::CBitmap> ledOn_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> off_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> pressed_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> ring_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
 };
 
@@ -260,14 +265,14 @@ public:
     void draw(VSTGUI::CDrawContext* ctx) override
     {
         if (!ctx || !editor_) { setDirty(false); return; }
-        auto r=getViewSize();
+        auto r = getViewSize();
         ctx->setDrawMode(VSTGUI::kAntiAliasing);
-        ctx->setFillColor(VSTGUI::CColor(15,13,11,205));
-        ctx->setFrameColor(VSTGUI::CColor(151,116,68,190));
-        ctx->setLineWidth(1);
+        ctx->setFillColor(VSTGUI::CColor(245,247,250,230));
+        ctx->setFrameColor(VSTGUI::CColor(0,145,255,210));
+        ctx->setLineWidth(1.5);
         ctx->drawRect(r,VSTGUI::kDrawFilledAndStroked);
         ctx->setFont(VSTGUI::kNormalFontSmall);
-        ctx->setFontColor(VSTGUI::CColor(214,193,157,255));
+        ctx->setFontColor(VSTGUI::CColor(18,24,32,255));
         ctx->drawString(editor_->getZoomFactor()>.59 ? "UI 100%" : "UI 75%", r, VSTGUI::kCenterText);
         setDirty(false);
     }
@@ -279,6 +284,7 @@ public:
         invalid();
         return VSTGUI::kMouseEventHandled;
     }
+
 private:
     SMX3Editor* editor_ = nullptr;
 };
@@ -301,11 +307,10 @@ VSTGUI::CView* SMX3Editor::createView(const VSTGUI::UIAttributes& a,
                                       const VSTGUI::IUIDescription* d)
 {
     if (const auto n = a.getAttributeValue(VSTGUI::IUIDescription::kCustomViewName)) {
-        if (*n == "TubeGlow") return new TubeGlowView({0,0,1536,450});
-        if (*n == "Nameplate") return new BitmapView({152,457,602,612}, "SMX3_Nameplate_Runtime.png");
-        if (*n == "CompanyBadge") return new BitmapView({175,795,425,920}, "125A_Badge_Runtime.png");
-        if (*n == "Drive") return new DriveView({563,496,993,926}, controller_);
-        if (*n == "Mode") return new ModeView({1010,640,1455,890}, controller_);
+        if (*n == "TubeGlow") return new TubeGlowView({0,0,1536,520});
+        if (*n == "Underlight") return new BitmapView({243,895,1293,965}, "SMX3_Base_Underlight.png");
+        if (*n == "Drive") return new DriveView({618,553,918,853}, controller_);
+        if (*n == "Mode") return new ModeView({990,660,1468,825}, controller_);
         if (*n == "UiZoom") return new ZoomView({1370,70,1450,102}, this);
     }
     return VSTGUI::VST3Editor::createView(a,d);
