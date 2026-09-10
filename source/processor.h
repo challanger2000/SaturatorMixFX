@@ -25,6 +25,7 @@ public:
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 
 private:
+    double onOff_ = 1.0;
     double drive_ = 0.30;
     double character_ = 0.0;
     double mix_ = 1.0;
