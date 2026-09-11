@@ -35,12 +35,16 @@ class TubeGlowView final : public VSTGUI::CView {
 public:
     explicit TubeGlowView(const VSTGUI::CRect&r):CView(r) {
         tube_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_MITTEL.png"));
-        glow_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Internal_Glow.png"));
         setMouseEnabled(false);
+        for(size_t i=0;i<bolts_.size();++i) bolts_[i].wait=6+static_cast<int>(i)*5;
         timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
-            phase_ += 0.05;
-            if(phase_ > 2.*kPi) phase_ -= 2.*kPi;
-            invalid();
+            bool changed=false;
+            for(size_t i=0;i<bolts_.size();++i){
+                auto& b=bolts_[i];
+                if(b.ticks>0){ --b.ticks; changed=true; }
+                else if(--b.wait<=0){ makeBolt(i); changed=true; }
+            }
+            if(changed) invalid();
         },33);
     }
     void draw(VSTGUI::CDrawContext*ctx) override {
@@ -51,9 +55,6 @@ public:
         const double srcH=tube_->getHeight();
         if(srcW<=0.||srcH<=0.){setDirty(false);return;}
 
-        const double pulse=0.5+0.5*std::sin(phase_);
-        const float glowAlpha=static_cast<float>(0.18+0.82*pulse);
-
         for(size_t i=0;i<3;++i){
             const double left=cx[i]-tubeW/2.;
             const double top=cy-tubeH/2.;
@@ -61,16 +62,55 @@ public:
             transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
             VSTGUI::CDrawContext::Transform guard(*ctx,transform);
             tube_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),1.f);
-            if(glow_ && glow_->getWidth()==srcW && glow_->getHeight()==srcH)
-                glow_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),glowAlpha);
+        }
+
+        ctx->setDrawMode(VSTGUI::kAntiAliasing);
+        for(const auto& b:bolts_){
+            if(b.ticks<=0) continue;
+            const uint8_t alpha=static_cast<uint8_t>(std::clamp(115+b.ticks*45,0,255));
+            ctx->setLineWidth(7.0);
+            ctx->setFrameColor({0,110,255,static_cast<uint8_t>(alpha/3)});
+            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            ctx->setLineWidth(2.5);
+            ctx->setFrameColor({70,180,255,alpha});
+            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            ctx->setLineWidth(1.0);
+            ctx->setFrameColor({235,250,255,255});
+            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            ctx->setLineWidth(1.0);
+            ctx->setFrameColor({150,220,255,180});
+            ctx->drawLine(b.points[3],b.branch);
         }
         setDirty(false);
     }
 private:
+    struct Bolt {
+        std::array<VSTGUI::CPoint,7> points{};
+        VSTGUI::CPoint branch{};
+        int ticks=0;
+        int wait=0;
+    };
+    double random01(){ seed_=1664525u*seed_+1013904223u; return static_cast<double>((seed_>>8)&0x00FFFFFFu)/16777215.0; }
+    double randomSigned(double amount){ return (random01()*2.0-1.0)*amount; }
+    void makeBolt(size_t index){
+        static constexpr std::array<double,3> cx{{421.,768.,1115.}};
+        auto& b=bolts_[index];
+        const double startY=244.+randomSigned(8.);
+        const double endY=360.+randomSigned(8.);
+        for(size_t p=0;p<b.points.size();++p){
+            const double t=static_cast<double>(p)/static_cast<double>(b.points.size()-1);
+            const double y=startY+(endY-startY)*t;
+            const double spread=(p==0||p+1==b.points.size())?5.:26.;
+            b.points[p]=VSTGUI::CPoint(cx[index]+randomSigned(spread),y+randomSigned(5.));
+        }
+        b.branch=VSTGUI::CPoint(b.points[3].x+randomSigned(34.),b.points[3].y+18.+random01()*24.);
+        b.ticks=2+static_cast<int>(random01()*3.);
+        b.wait=8+static_cast<int>(random01()*20.);
+    }
     VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
-    VSTGUI::SharedPointer<VSTGUI::CBitmap> glow_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
-    double phase_=0.;
+    std::array<Bolt,3> bolts_{};
+    unsigned int seed_=0x125A3u;
 };
 
 class DriveView final : public VSTGUI::CView {
