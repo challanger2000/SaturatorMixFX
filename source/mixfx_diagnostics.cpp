@@ -44,6 +44,19 @@ double mixFxShapeDrive(double d)
     const double u = (d - pivot) / (1.0 - pivot);
     return pivot + (1.0 - pivot) * std::pow(u, .78);
 }
+
+double mixFxHighDriveCharacterTrimDb(double effectiveDrive, double wT, double wP, double wI)
+{
+    (void)wI;
+    if (effectiveDrive <= .30)
+        return 0.0;
+
+    const double t = mixFxClamp01((effectiveDrive - .30) / .70);
+    const double t2 = t * t;
+    const double tri = (-6.692542930684427 * t) + (3.327880038412518 * t2);
+    const double pent = (-3.5778484322423374 * t) + (7.70367037382395 * t2);
+    return wT * tri + wP * pent;
+}
 } // namespace
 
 const Steinberg::TUID PresonusProbe::IAudioMixProcessor::iid = {
@@ -111,9 +124,6 @@ Steinberg::tresult Processor::processMixFxChannel(
 
     auto& mixState = mixFxStates_[static_cast<size_t>(index)];
 
-    // Start every callback from the thread-safe global snapshot published by
-    // METHOD B. Studio One may also put parameter queues directly on METHOD C;
-    // those are applied below and therefore win for this channel/block.
     mixState.targetBypass = mixFxTargetBypass_.load(std::memory_order_relaxed);
     mixState.targetDrive = mixFxTargetDrive_.load(std::memory_order_relaxed);
     mixState.targetCharacter = mixFxTargetCharacter_.load(std::memory_order_relaxed);
@@ -185,7 +195,8 @@ Steinberg::tresult Processor::processMixFxChannel(
             const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
             const double referenceAmount = std::min(1.0, effectiveDrive / .30);
             const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * referenceAmount;
-            const double comp = mixFxDbToGain(trim + baseComp + polishTrimDb);
+            const double highDriveTrimDb = mixFxHighDriveCharacterTrimDb(effectiveDrive, wT, wP, wI);
+            const double comp = mixFxDbToGain(trim + baseComp + polishTrimDb + highDriveTrimDb);
             const double protect = .18 * wT + .42 * wP + .30 * wI;
             const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
 
@@ -273,8 +284,6 @@ Steinberg::tresult PLUGIN_API Processor::mixMethodA(
 
 Steinberg::tresult PLUGIN_API Processor::mixMethodB(Steinberg::Vst::ProcessData* data)
 {
-    // METHOD B is the common parameter stream. Publish a lock-free snapshot for
-    // the parallel METHOD C callbacks; no channel DSP state is touched here.
     if (data)
         readParameterChanges(data->inputParameterChanges);
 
