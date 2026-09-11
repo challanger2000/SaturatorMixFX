@@ -1,4 +1,6 @@
 #include "processor.h"
+#include "pluginids.h"
+#include "pluginterfaces/vst/ivstparameterchanges.h"
 
 #include <algorithm>
 #include <cmath>
@@ -76,9 +78,20 @@ Steinberg::tresult PLUGIN_API Processor::queryInterface(const Steinberg::TUID ii
 
 void Processor::resetMixFxStates()
 {
+    mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
+    mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
+    mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
+    mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
+    mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
+
     for (auto& state : mixFxStates_)
     {
         state = {};
+        state.targetBypass = onOff_;
+        state.targetDrive = drive_;
+        state.targetCharacter = character_;
+        state.targetMix = mix_;
+        state.targetOutput = output_;
         state.smoothDrive = drive_;
         state.smoothCharacter = character_;
         state.smoothMix = mix_;
@@ -96,6 +109,43 @@ Steinberg::tresult Processor::processMixFxChannel(
     if (index < 0 || index >= kMaxMixFxChannels)
         return kInvalidArgument;
 
+    auto& mixState = mixFxStates_[static_cast<size_t>(index)];
+
+    // Start every callback from the thread-safe global snapshot published by
+    // METHOD B. Studio One may also put parameter queues directly on METHOD C;
+    // those are applied below and therefore win for this channel/block.
+    mixState.targetBypass = mixFxTargetBypass_.load(std::memory_order_relaxed);
+    mixState.targetDrive = mixFxTargetDrive_.load(std::memory_order_relaxed);
+    mixState.targetCharacter = mixFxTargetCharacter_.load(std::memory_order_relaxed);
+    mixState.targetMix = mixFxTargetMix_.load(std::memory_order_relaxed);
+    mixState.targetOutput = mixFxTargetOutput_.load(std::memory_order_relaxed);
+
+    if (data.inputParameterChanges)
+    {
+        for (int32 i = 0; i < data.inputParameterChanges->getParameterCount(); ++i)
+        {
+            auto* q = data.inputParameterChanges->getParameterData(i);
+            if (!q || q->getPointCount() <= 0)
+                continue;
+
+            int32 offset = 0;
+            ParamValue value = 0.0;
+            if (q->getPoint(q->getPointCount() - 1, offset, value) != kResultTrue)
+                continue;
+
+            value = mixFxClamp01(value);
+            switch (q->getParameterId())
+            {
+                case kParamOnOff:     mixState.targetBypass = value; break;
+                case kParamDrive:     mixState.targetDrive = value; break;
+                case kParamCharacter: mixState.targetCharacter = value; break;
+                case kParamMix:       mixState.targetMix = value; break;
+                case kParamOutput:    mixState.targetOutput = value; break;
+                default: break;
+            }
+        }
+    }
+
     if (data.numInputs <= 0 || data.numOutputs <= 0 || data.numSamples <= 0)
         return kResultOk;
 
@@ -105,11 +155,6 @@ Steinberg::tresult Processor::processMixFxChannel(
     if (chans <= 0)
         return kResultOk;
 
-    // IMPORTANT: Studio One can process independent mixer channels on different
-    // audio-worker threads. Never borrow/swap the ordinary VST3 channelState_ or
-    // its smoother members here. Each Mix-FX index owns its state permanently,
-    // making this callback re-entrant and independent across mixer channels.
-    auto& mixState = mixFxStates_[static_cast<size_t>(index)];
     bool allBypassed = true;
 
     auto run = [&](auto** srcs, auto** dsts)
@@ -118,12 +163,12 @@ Steinberg::tresult Processor::processMixFxChannel(
         for (int32 n = 0; n < data.numSamples; ++n)
         {
             const double aSmooth = 1.0 - smoothCoeff_;
-            mixState.smoothDrive = smoothCoeff_ * mixState.smoothDrive + aSmooth * drive_;
-            mixState.smoothCharacter = smoothCoeff_ * mixState.smoothCharacter + aSmooth * character_;
-            mixState.smoothMix = smoothCoeff_ * mixState.smoothMix + aSmooth * mix_;
-            mixState.smoothOutput = smoothCoeff_ * mixState.smoothOutput + aSmooth * output_;
+            mixState.smoothDrive = smoothCoeff_ * mixState.smoothDrive + aSmooth * mixState.targetDrive;
+            mixState.smoothCharacter = smoothCoeff_ * mixState.smoothCharacter + aSmooth * mixState.targetCharacter;
+            mixState.smoothMix = smoothCoeff_ * mixState.smoothMix + aSmooth * mixState.targetMix;
+            mixState.smoothOutput = smoothCoeff_ * mixState.smoothOutput + aSmooth * mixState.targetOutput;
 
-            const bool bypass = onOff_ >= .5;
+            const bool bypass = mixState.targetBypass >= .5;
             allBypassed = allBypassed && bypass;
 
             const double pos = mixFxClamp01(mixState.smoothCharacter) * 2.0;
@@ -219,8 +264,6 @@ Steinberg::tresult PLUGIN_API Processor::mixMethodA(
     Steinberg::Vst::SpeakerArrangement* /*arrangements*/,
     Steinberg::int32 count)
 {
-    // Studio One announces the participating mixer channels here. From this
-    // point on the private per-channel path owns the saturation processing.
     mixFxEngaged_ = true;
     mixFxChannelCount_ = std::max<Steinberg::int32>(0,
         std::min<Steinberg::int32>(count, kMaxMixFxChannels));
@@ -230,11 +273,16 @@ Steinberg::tresult PLUGIN_API Processor::mixMethodA(
 
 Steinberg::tresult PLUGIN_API Processor::mixMethodB(Steinberg::Vst::ProcessData* data)
 {
-    // The global callback carries the shared automation/parameter stream. It is
-    // deliberately not used for saturation; otherwise the final sum would be
-    // processed in addition to the individual mixer channels.
+    // METHOD B is the common parameter stream. Publish a lock-free snapshot for
+    // the parallel METHOD C callbacks; no channel DSP state is touched here.
     if (data)
         readParameterChanges(data->inputParameterChanges);
+
+    mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
+    mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
+    mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
+    mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
+    mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
     return Steinberg::kResultOk;
 }
 
