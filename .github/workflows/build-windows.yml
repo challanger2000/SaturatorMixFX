@@ -29,11 +29,11 @@ jobs:
           -DSMTG_CREATE_PLUGIN_LINK=0
 
       - name: Build Release
-        run: cmake --build build --config Release --target SaturatorMixFX
+        run: cmake --build build --config Release --target SMX3Channel
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: SaturatorMixFX-Windows-x64
+          name: SMX3Channel-Windows-x64
           path: build/**/*.vst3
           if-no-files-found: error
