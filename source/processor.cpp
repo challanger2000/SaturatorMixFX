@@ -28,8 +28,6 @@ void Processor::readParameterChanges(IParameterChanges* c){if(!c)return;for(int3
 
 double Processor::shapeTriode(double x)const{constexpr double b=.22;double p=std::tanh(1.18*x+b)-std::tanh(b),n=std::tanh(.92*x-.55*b)+std::tanh(.55*b);double y=.64*p+.36*n;y+=.075*x*x/(1.0+1.8*std::abs(x));return y;}
 
-// Pentode stays brighter and more odd-harmonic than Triode, but the transfer is no longer dominated
-// by two hard tanh stages. A controlled quasi-linear branch keeps attacks alive at moderate Drive.
 double Processor::shapePentode(double x)const{
     double a=.46*std::tanh(1.32*x);
     double b=.18*std::tanh(2.15*x);
@@ -38,8 +36,6 @@ double Processor::shapePentode(double x)const{
     return a+b+c+d;
 }
 
-// Iron remains stateful. Less static clipping plus a slightly stronger memory term gives magnetic
-// colour without turning the mode into a peak limiter at the factory setting.
 double Processor::shapeIron(double x,ChannelState&s){
     s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;
     double m=s.ironMemory,f=x+.24*m;
@@ -53,7 +49,7 @@ double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 
 tresult PLUGIN_API Processor::process(ProcessData& d){readParameterChanges(d.inputParameterChanges);if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0)return kResultOk;auto&in=d.inputs[0];auto&out=d.outputs[0];int32 chans=std::min<int32>(std::min(in.numChannels,out.numChannels),kMaxChannels);bool bypass=onOff_>=.5;int mode=std::clamp((int)std::lround(character_*2.0),0,2);
- auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();double driveDb=24.0*smoothDrive_,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*smoothDrive_;double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?.82:.34));double comp=dbToGain(trim+baseComp+polishTrimDb);
+ auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();double driveDb=24.0*smoothDrive_,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*smoothDrive_;double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?2.67:.34));double comp=dbToGain(trim+baseComp+polishTrimDb);
   for(int32 ch=0;ch<chans;++ch){auto*src=srcs[ch];auto*dst=dsts[ch];if(!src||!dst)continue;double x=(double)src[n];auto&s=channelState_[(size_t)ch];if(bypass){dst[n]=(Sample)x;s.previousInput=x;continue;}
    s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high;double coloured=x;
    if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.86*low+1.09*mid+1.04*high;else coloured=1.10*low+1.02*mid+.84*high;
