@@ -40,11 +40,18 @@ public:
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx||!tube_){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
-        constexpr double cy=322.,tubeW=190.,tubeH=280.;
-        const VSTGUI::CRect src(0.,0.,tube_->getWidth(),tube_->getHeight());
+        constexpr double cy=322.,tubeW=280.,tubeH=340.;
+        const double srcW=tube_->getWidth();
+        const double srcH=tube_->getHeight();
+        if(srcW<=0.||srcH<=0.){setDirty(false);return;}
+
         for(size_t i=0;i<3;++i){
-            const VSTGUI::CRect dst(cx[i]-tubeW/2.,cy-tubeH/2.,cx[i]+tubeW/2.,cy+tubeH/2.);
-            ctx->fillRectWithBitmap(tube_,src,dst,1.f);
+            const double left=cx[i]-tubeW/2.;
+            const double top=cy-tubeH/2.;
+            VSTGUI::CGraphicsTransform transform;
+            transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
+            VSTGUI::CDrawContext::Transform guard(*ctx,transform);
+            tube_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),1.f);
         }
         setDirty(false);
     }
