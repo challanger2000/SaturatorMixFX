@@ -20,31 +20,15 @@ Processor::Processor(){setControllerClass(kControllerUID);}
 tresult PLUGIN_API Processor::initialize(FUnknown* c){auto r=AudioEffect::initialize(c);if(r!=kResultOk)return r;addAudioInput(STR16("Stereo In"),SpeakerArr::kStereo,kMain,BusInfo::kDefaultActive);addAudioOutput(STR16("Stereo Out"),SpeakerArr::kStereo,kMain,BusInfo::kDefaultActive);return kResultOk;}
 tresult PLUGIN_API Processor::setBusArrangements(SpeakerArrangement* i,int32 ni,SpeakerArrangement* o,int32 no){if(ni==1&&no==1&&i[0]==SpeakerArr::kStereo&&o[0]==SpeakerArr::kStereo)return AudioEffect::setBusArrangements(i,ni,o,no);return kResultFalse;}
 tresult PLUGIN_API Processor::canProcessSampleSize(int32 s){return(s==kSample32||s==kSample64)?kResultTrue:kResultFalse;}
-tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& s){auto r=AudioEffect::setupProcessing(s);if(r!=kResultOk)return r;sampleRate_=s.sampleRate>1.0?s.sampleRate:44100.0;smoothCoeff_=std::exp(-1.0/(0.018*sampleRate_));double ir=sampleRate_*kOversample;ironMemoryCoeff_=std::exp(-2.0*kPi*95.0/ir);dcCoeff_=std::exp(-2.0*kPi*18.0/sampleRate_);lowCoeff_=std::exp(-2.0*kPi*145.0/sampleRate_);highCoeff_=std::exp(-2.0*kPi*6200.0/sampleRate_);envFastCoeff_=std::exp(-1.0/(0.0015*sampleRate_));envSlowCoeff_=std::exp(-1.0/(0.035*sampleRate_));resetDsp();return kResultOk;}
+tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& s){auto r=AudioEffect::setupProcessing(s);if(r!=kResultOk)return r;sampleRate_=s.sampleRate>1.0?s.sampleRate:44100.0;smoothCoeff_=std::exp(-1.0/(0.018*sampleRate_));double ir=sampleRate_*kOversample;ironMemoryCoeff_=std::exp(-2.0*kPi*95.0/ir);dcCoeff_=std::exp(-2.0*kPi*18.0/sampleRate_);lowCoeff_=std::exp(-2.0*kPi*145.0/sampleRate_);highCoeff_=std::exp(-2.0*kPi*6200.0/sampleRate_);envFastCoeff_=std::exp(-1.0/(0.0015*sampleRate_));envSlowCoeff_=std::exp(-1.0/(0.035*sampleRate_));aaCoeff_=std::exp(-2.0*kPi*(0.68*sampleRate_)/ir);resetDsp();return kResultOk;}
 tresult PLUGIN_API Processor::setActive(TBool s){if(s)resetDsp();return AudioEffect::setActive(s);}
 void Processor::resetDsp(){for(auto& s:channelState_)s={};smoothDrive_=drive_;smoothMix_=mix_;smoothOutput_=output_;}
 void Processor::updateSmoothers(){double a=1.0-smoothCoeff_;smoothDrive_=smoothCoeff_*smoothDrive_+a*drive_;smoothMix_=smoothCoeff_*smoothMix_+a*mix_;smoothOutput_=smoothCoeff_*smoothOutput_+a*output_;}
 void Processor::readParameterChanges(IParameterChanges* c){if(!c)return;for(int32 i=0;i<c->getParameterCount();++i){auto*q=c->getParameterData(i);if(!q||q->getPointCount()<=0)continue;int32 off=0;ParamValue v=0;if(q->getPoint(q->getPointCount()-1,off,v)!=kResultTrue)continue;switch(q->getParameterId()){case kParamOnOff:onOff_=clamp01(v);break;case kParamDrive:drive_=clamp01(v);break;case kParamCharacter:character_=clamp01(v);break;case kParamMix:mix_=clamp01(v);break;case kParamOutput:output_=clamp01(v);break;default:break;}}}
 
 double Processor::shapeTriode(double x)const{constexpr double b=.22;double p=std::tanh(1.18*x+b)-std::tanh(b),n=std::tanh(.92*x-.55*b)+std::tanh(.55*b);double y=.64*p+.36*n;y+=.075*x*x/(1.0+1.8*std::abs(x));return y;}
-
-double Processor::shapePentode(double x)const{
-    double a=.46*std::tanh(1.32*x);
-    double b=.18*std::tanh(2.15*x);
-    double c=.16*std::atan(1.75*x)*(2.0/kPi);
-    double d=.20*x/(1.0+.18*std::abs(x));
-    return a+b+c+d;
-}
-
-double Processor::shapeIron(double x,ChannelState&s){
-    s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;
-    double m=s.ironMemory,f=x+.24*m;
-    double core=.58*std::tanh(1.10*f);
-    double soft=.30*f/(1.0+.30*std::abs(f));
-    double linear=.12*f;
-    double hysteretic=.045*m*std::abs(m);
-    return core+soft+linear+hysteretic;
-}
+double Processor::shapePentode(double x)const{double a=.46*std::tanh(1.32*x);double b=.18*std::tanh(2.15*x);double c=.16*std::atan(1.75*x)*(2.0/kPi);double d=.20*x/(1.0+.18*std::abs(x));return a+b+c+d;}
+double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;double m=s.ironMemory,f=x+.24*m;double core=.58*std::tanh(1.10*f);double soft=.30*f/(1.0+.30*std::abs(f));double linear=.12*f;double hysteretic=.045*m*std::abs(m);return core+soft+linear+hysteretic;}
 double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x);if(m==kPentode)return shapePentode(x);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 
@@ -54,7 +38,7 @@ tresult PLUGIN_API Processor::process(ProcessData& d){readParameterChanges(d.inp
    s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high;double coloured=x;
    if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.86*low+1.09*mid+1.04*high;else coloured=1.10*low+1.02*mid+.84*high;
    double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;double transient=std::max(0.0,s.envFast-s.envSlow);double normTransient=clamp01(transient/(.06+s.envSlow));double protect=(mode==kPentode?.42:(mode==kIron?.30:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
-   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;acc+=processNonlinear(interp*dynamicGain,mode,s);}s.previousInput=coloured;double processed=(acc/kOversample)*comp;double attackBlend=normTransient*(mode==kPentode?.22:(mode==kIron?.15:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;
+   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;double nl=processNonlinear(interp*dynamicGain,mode,s);s.aa1=aaCoeff_*s.aa1+(1.0-aaCoeff_)*nl;s.aa2=aaCoeff_*s.aa2+(1.0-aaCoeff_)*s.aa1;acc+=s.aa2;}s.previousInput=coloured;double processed=(acc/kOversample)*comp;double attackBlend=normTransient*(mode==kPentode?.22:(mode==kIron?.15:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;
    processed=peakProtect(processed);processed=dcBlock(processed,s);dst[n]=(Sample)((dry*x+wet*processed)*outGain);
   }} };
  if(d.symbolicSampleSize==kSample64)run(in.channelBuffers64,out.channelBuffers64);else if(d.symbolicSampleSize==kSample32)run(in.channelBuffers32,out.channelBuffers32);else return kResultFalse;out.silenceFlags=in.silenceFlags;return kResultOk;}
