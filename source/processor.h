@@ -56,6 +56,7 @@ public:
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 private:
     static constexpr int kMaxChannels = 2;
+    static constexpr int kMaxMixFxChannels = 128;
     static constexpr int kOversample = 4;
     static constexpr int kOversampleSections = 8;
 
@@ -71,6 +72,13 @@ private:
         std::array<BiquadState,kOversampleSections> cleanUp{};
         std::array<BiquadState,kOversampleSections> cleanDown{};
     };
+    struct MixFxChannelState {
+        std::array<ChannelState,kMaxChannels> dsp{};
+        double smoothDrive=0.30;
+        double smoothCharacter=0.0;
+        double smoothMix=1.0;
+        double smoothOutput=0.75;
+    };
 
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
     void resetDsp();
@@ -82,6 +90,8 @@ private:
     double shapeIron(double x, ChannelState& state);
     double processNonlinear(double x,int mode,ChannelState& state);
     double dcBlock(double x,ChannelState& state);
+    Steinberg::tresult processMixFxChannel(Steinberg::int32 index, Steinberg::Vst::ProcessData& data);
+    void resetMixFxStates();
 
     double onOff_=0.0, drive_=0.30, character_=0.0, mix_=1.0, output_=0.75;
     double sampleRate_=44100.0, smoothDrive_=0.30, smoothCharacter_=0.0, smoothMix_=1.0, smoothOutput_=0.75;
@@ -90,6 +100,9 @@ private:
     double triodeChargeCoeff_=0.0, pentodeChargeCoeff_=0.0, ironFluxCoeff_=0.0;
     std::array<BiquadCoeffs,kOversampleSections> osCoeffs_{};
     std::array<ChannelState,kMaxChannels> channelState_{};
+    std::array<MixFxChannelState,kMaxMixFxChannels> mixFxStates_{};
+    bool mixFxEngaged_=false;
+    Steinberg::int32 mixFxChannelCount_=0;
 };
 
 } // namespace SaturatorMixFX
