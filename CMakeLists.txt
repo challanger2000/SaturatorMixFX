@@ -19,7 +19,7 @@ set(vst3sdk_SOURCE_DIR "${VST3_SDK_ROOT}")
 add_subdirectory("${vst3sdk_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vst3sdk")
 smtg_enable_vst3_sdk()
 
-smtg_add_vst3plugin(SaturatorMixFX
+smtg_add_vst3plugin(SMX3Channel
     source/pluginids.h
     source/processor.h
     source/processor.cpp
@@ -30,15 +30,15 @@ smtg_add_vst3plugin(SaturatorMixFX
     source/factory.cpp
 )
 
-target_link_libraries(SaturatorMixFX PRIVATE sdk vstgui_support)
+target_link_libraries(SMX3Channel PRIVATE sdk vstgui_support)
 
 if(WIN32)
-    target_sources(SaturatorMixFX PRIVATE
+    target_sources(SMX3Channel PRIVATE
         ${vst3sdk_SOURCE_DIR}/public.sdk/source/main/dllmain.cpp
     )
 endif()
 
-smtg_target_add_plugin_resources(SaturatorMixFX
+smtg_target_add_plugin_resources(SMX3Channel
     RESOURCES
         resource/SMX3.uidesc
         resource/SMX3_MainGUI.png
@@ -59,8 +59,8 @@ smtg_target_add_plugin_resources(SaturatorMixFX
         resource/SMX3_Base_Underlight.png
 )
 
-smtg_target_configure_version_file(SaturatorMixFX)
+smtg_target_configure_version_file(SMX3Channel)
 
-target_compile_definitions(SaturatorMixFX PRIVATE
+target_compile_definitions(SMX3Channel PRIVATE
     SATURATORMIXFX_VERSION="${PROJECT_VERSION}"
 )
