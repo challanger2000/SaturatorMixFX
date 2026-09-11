@@ -130,6 +130,7 @@ Steinberg::tresult Processor::processMixFxChannel(
     mixState.targetMix = mixFxTargetMix_.load(std::memory_order_relaxed);
     mixState.targetOutput = mixFxTargetOutput_.load(std::memory_order_relaxed);
 
+    bool receivedParameterChange = false;
     if (data.inputParameterChanges)
     {
         for (int32 i = 0; i < data.inputParameterChanges->getParameterCount(); ++i)
@@ -146,14 +147,27 @@ Steinberg::tresult Processor::processMixFxChannel(
             value = mixFxClamp01(value);
             switch (q->getParameterId())
             {
-                case kParamOnOff:     mixState.targetBypass = value; break;
-                case kParamDrive:     mixState.targetDrive = value; break;
-                case kParamCharacter: mixState.targetCharacter = value; break;
-                case kParamMix:       mixState.targetMix = value; break;
-                case kParamOutput:    mixState.targetOutput = value; break;
+                case kParamOnOff:     mixState.targetBypass = value; receivedParameterChange = true; break;
+                case kParamDrive:     mixState.targetDrive = value; receivedParameterChange = true; break;
+                case kParamCharacter: mixState.targetCharacter = value; receivedParameterChange = true; break;
+                case kParamMix:       mixState.targetMix = value; receivedParameterChange = true; break;
+                case kParamOutput:    mixState.targetOutput = value; receivedParameterChange = true; break;
                 default: break;
             }
         }
+    }
+
+    // Studio One may deliver a parameter queue to one private channel callback
+    // before the other callbacks see it. Publish the resolved targets atomically
+    // so every participating mixer channel converges to the same parameter state
+    // on the following block instead of being pulled back to stale global values.
+    if (receivedParameterChange)
+    {
+        mixFxTargetBypass_.store(mixState.targetBypass, std::memory_order_relaxed);
+        mixFxTargetDrive_.store(mixState.targetDrive, std::memory_order_relaxed);
+        mixFxTargetCharacter_.store(mixState.targetCharacter, std::memory_order_relaxed);
+        mixFxTargetMix_.store(mixState.targetMix, std::memory_order_relaxed);
+        mixFxTargetOutput_.store(mixState.targetOutput, std::memory_order_relaxed);
     }
 
     if (data.numInputs <= 0 || data.numOutputs <= 0 || data.numSamples <= 0)
