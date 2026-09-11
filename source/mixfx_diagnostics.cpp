@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 
 namespace SaturatorMixFX {
@@ -162,7 +163,9 @@ Steinberg::tresult Processor::processMixFxChannel(
 
     if (data.numInputs <= 0 || data.numOutputs <= 0 || data.numSamples <= 0)
     {
-        applyAutomation(0);
+        // Parameter-only flushes have no meaningful audio sample position. Consume
+        // every queued point so state cannot get stuck on an earlier value.
+        applyAutomation(std::numeric_limits<int32>::max());
         return kResultOk;
     }
 
