@@ -55,6 +55,7 @@ smtg_target_add_plugin_resources(SaturatorMixFX
         resource/SMX3_SCHWACH.png
         resource/SMX3_MITTEL.png
         resource/SMX3_STARK.png
+        resource/SMX3_Internal_Glow.png
         resource/SMX3_Base_Underlight.png
 )
 
