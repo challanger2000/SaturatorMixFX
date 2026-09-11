@@ -36,6 +36,11 @@ public:
     explicit TubeGlowView(const VSTGUI::CRect&r):CView(r) {
         tube_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_MITTEL.png"));
         setMouseEnabled(false);
+        timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
+            phase_ += 0.075;
+            if(phase_ > 2.*kPi) phase_ -= 2.*kPi;
+            invalid();
+        },33);
     }
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx||!tube_){setDirty(false);return;}
@@ -45,18 +50,33 @@ public:
         const double srcH=tube_->getHeight();
         if(srcW<=0.||srcH<=0.){setDirty(false);return;}
 
+        // One immutable tube bitmap. Only its central reactor area is redrawn
+        // on top of itself. This keeps glass, frame, screws and lettering fixed.
+        const double pulse=0.5+0.5*std::sin(phase_);
+        const float glowAlpha=static_cast<float>(0.12+0.58*pulse);
+        const VSTGUI::CRect core(srcW*0.31,srcH*0.18,srcW*0.69,srcH*0.69);
+
         for(size_t i=0;i<3;++i){
             const double left=cx[i]-tubeW/2.;
             const double top=cy-tubeH/2.;
             VSTGUI::CGraphicsTransform transform;
             transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
             VSTGUI::CDrawContext::Transform guard(*ctx,transform);
+
+            // Static master tube.
             tube_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),1.f);
+
+            // Visible internal glow only: same exact pixels, same exact position.
+            tube_->draw(ctx,core,VSTGUI::CPoint(core.left,core.top),glowAlpha);
+            if(pulse>0.72)
+                tube_->draw(ctx,core,VSTGUI::CPoint(core.left,core.top),static_cast<float>((pulse-0.72)*0.85));
         }
         setDirty(false);
     }
 private:
     VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
+    VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
+    double phase_=0.;
 };
 
 class DriveView final : public VSTGUI::CView {
