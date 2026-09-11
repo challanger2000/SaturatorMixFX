@@ -1,5 +1,6 @@
 #include "processor.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace SaturatorMixFX {
@@ -34,32 +35,96 @@ Steinberg::tresult PLUGIN_API Processor::queryInterface(const Steinberg::TUID ii
     return Steinberg::Vst::AudioEffect::queryInterface(iid, obj);
 }
 
+void Processor::resetMixFxStates()
+{
+    for (auto& state : mixFxStates_)
+    {
+        state = {};
+        state.smoothDrive = drive_;
+        state.smoothCharacter = character_;
+        state.smoothMix = mix_;
+        state.smoothOutput = output_;
+    }
+}
+
+Steinberg::tresult Processor::processMixFxChannel(
+    Steinberg::int32 index,
+    Steinberg::Vst::ProcessData& data)
+{
+    if (index < 0 || index >= kMaxMixFxChannels)
+        return Steinberg::kInvalidArgument;
+
+    // Reuse the already validated SMX-3 DSP verbatim, but give every Studio One
+    // mixer channel its own complete nonlinear/filter state and its own parameter
+    // smoothing history. This prevents crosstalk through our internal state.
+    const auto savedDsp = channelState_;
+    const double savedDrive = smoothDrive_;
+    const double savedCharacter = smoothCharacter_;
+    const double savedMix = smoothMix_;
+    const double savedOutput = smoothOutput_;
+
+    auto& mixState = mixFxStates_[static_cast<size_t>(index)];
+    channelState_ = mixState.dsp;
+    smoothDrive_ = mixState.smoothDrive;
+    smoothCharacter_ = mixState.smoothCharacter;
+    smoothMix_ = mixState.smoothMix;
+    smoothOutput_ = mixState.smoothOutput;
+
+    // The regular process() path contains the finished Channel DSP. Temporarily
+    // enter that path for this one private Mix-FX channel callback only.
+    const bool wasMixFxEngaged = mixFxEngaged_;
+    mixFxEngaged_ = false;
+    const Steinberg::tresult result = process(data);
+    mixFxEngaged_ = wasMixFxEngaged;
+
+    mixState.dsp = channelState_;
+    mixState.smoothDrive = smoothDrive_;
+    mixState.smoothCharacter = smoothCharacter_;
+    mixState.smoothMix = smoothMix_;
+    mixState.smoothOutput = smoothOutput_;
+
+    channelState_ = savedDsp;
+    smoothDrive_ = savedDrive;
+    smoothCharacter_ = savedCharacter;
+    smoothMix_ = savedMix;
+    smoothOutput_ = savedOutput;
+
+    return result;
+}
+
 Steinberg::tresult PLUGIN_API Processor::mixMethodA(
     Steinberg::Vst::SpeakerArrangement* /*arrangements*/,
-    Steinberg::int32 /*count*/)
+    Steinberg::int32 count)
 {
-    // Studio One announces the participating mixer-channel layouts here.
-    // The established v10.3 probe returned success without altering the
-    // regular VST3 bus topology, so keep the proven Channel DSP untouched.
+    // Studio One announces the participating mixer channels here. From this
+    // point on the private per-channel path owns the saturation processing.
+    mixFxEngaged_ = true;
+    mixFxChannelCount_ = std::max<Steinberg::int32>(0,
+        std::min<Steinberg::int32>(count, kMaxMixFxChannels));
+    resetMixFxStates();
     return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Processor::mixMethodB(Steinberg::Vst::ProcessData* /*data*/)
+Steinberg::tresult PLUGIN_API Processor::mixMethodB(Steinberg::Vst::ProcessData* data)
 {
-    // Global Mix-FX callback. The first integration step deliberately mirrors
-    // the previously successful clean-room v10.3 probe: advertise the ABI and
-    // let Studio One enable its Mix-FX routing before adding per-channel DSP.
+    // Global Mix-FX callback: keep the shared parameter targets synchronized,
+    // but do not saturate the summed signal here. The actual sound processing
+    // happens once, on each contributing mixer channel, in channelMethod().
+    if (data)
+        readParameterChanges(data->inputParameterChanges);
     return Steinberg::kResultOk;
 }
 
 Steinberg::tresult PLUGIN_API Processor::channelMethod(
-    Steinberg::int32 /*index*/,
-    Steinberg::Vst::ProcessData* /*data*/)
+    Steinberg::int32 index,
+    Steinberg::Vst::ProcessData* data)
 {
-    // Per-mixer-channel callback. Returning success is enough to reproduce the
-    // proven ABI handshake; channel DSP will be attached only after the host
-    // confirms that the contributing channels are now exposed/marked.
-    return Steinberg::kResultOk;
+    if (!data)
+        return Steinberg::kInvalidArgument;
+    if (mixFxChannelCount_ > 0 && index >= mixFxChannelCount_)
+        return Steinberg::kInvalidArgument;
+
+    return processMixFxChannel(index, *data);
 }
 
 } // namespace SaturatorMixFX
