@@ -7,7 +7,7 @@
     <view class="CView" size="0,0,1536,520" custom-view-name="TubeGlow" transparent="true"/>
     <view class="CView" size="243,895,1293,965" custom-view-name="Underlight" transparent="true"/>
     <view class="CView" size="618,553,918,853" custom-view-name="Drive" transparent="true"/>
-    <view class="CView" size="990,660,1468,825" custom-view-name="Mode" transparent="true"/>
+    <view class="CView" size="990,660,1470,825" custom-view-name="Mode" transparent="true"/>
     <view class="CView" size="1370,70,1450,102" custom-view-name="UiZoom" transparent="true"/>
   </template>
 </vstgui-ui-description>
