@@ -33,6 +33,25 @@ double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoef
 double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x,s);if(m==kPentode)return shapePentode(x,s);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 tresult PLUGIN_API Processor::process(ProcessData& d){
+    // Once Studio One has engaged the private Mix-FX ABI, the contributing
+    // mixer channels are processed in channelMethod(). The ordinary VST3
+    // process callback may still be called for the summed path, so it must be
+    // transparent here or the saturation would be applied a second time.
+    if(mixFxEngaged_){
+        readParameterChanges(d.inputParameterChanges);
+        if(d.numInputs<=0||d.numOutputs<=0||d.numSamples<=0)return kResultOk;
+        const int32 buses=std::min(d.numInputs,d.numOutputs);
+        for(int32 b=0;b<buses;++b){
+            auto& inBus=d.inputs[b];auto& outBus=d.outputs[b];
+            const int32 channels=std::min(inBus.numChannels,outBus.numChannels);
+            if(d.symbolicSampleSize==kSample64){for(int32 ch=0;ch<channels;++ch){auto*src=inBus.channelBuffers64?inBus.channelBuffers64[ch]:nullptr;auto*dst=outBus.channelBuffers64?outBus.channelBuffers64[ch]:nullptr;if(!src||!dst||src==dst)continue;for(int32 n=0;n<d.numSamples;++n)dst[n]=src[n];}}
+            else if(d.symbolicSampleSize==kSample32){for(int32 ch=0;ch<channels;++ch){auto*src=inBus.channelBuffers32?inBus.channelBuffers32[ch]:nullptr;auto*dst=outBus.channelBuffers32?outBus.channelBuffers32[ch]:nullptr;if(!src||!dst||src==dst)continue;for(int32 n=0;n<d.numSamples;++n)dst[n]=src[n];}}
+            else return kResultFalse;
+            outBus.silenceFlags=inBus.silenceFlags;
+        }
+        return kResultOk;
+    }
+
     // VST3 hosts may flush parameter changes with no audio buffers. Consume those
     // changes so processor/controller state (especially bypass) stays synchronized.
     if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0){readParameterChanges(d.inputParameterChanges);return kResultOk;}
