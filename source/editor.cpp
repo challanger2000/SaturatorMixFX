@@ -94,35 +94,37 @@ public:
         for(int i=0;i<3;++i){
             const bool on=!bypass&&active==i;
             const double x=kModeCx[i], y=kModeCy;
+
+            VSTGUI::CRect shadow(x-53.,y-50.,x+55.,y+58.);
+            ctx->setFillColor({0,0,0,78});
+            ctx->setFrameColor({0,0,0,0});
+            ctx->drawEllipse(shadow,VSTGUI::kDrawFilled);
+
             if(on){
-                VSTGUI::CRect halo(x-59.,y-59.,x+59.,y+59.);
-                ctx->setFillColor({0,120,255,42});
-                ctx->setFrameColor({0,153,255,255});
-                ctx->setLineWidth(5.);
-                ctx->drawEllipse(halo,VSTGUI::kDrawFilledAndStroked);
+                VSTGUI::CRect glow(x-57.,y-57.,x+57.,y+57.);
+                ctx->setFillColor({0,118,255,34});
+                ctx->setFrameColor({0,151,255,255});
+                ctx->setLineWidth(4.);
+                ctx->drawEllipse(glow,VSTGUI::kDrawFilledAndStroked);
             }
-            VSTGUI::CRect rim(x-56.,y-56.,x+56.,y+56.);
-            ctx->setFillColor({78,80,84,255});
-            ctx->setFrameColor({18,19,21,255});
-            ctx->setLineWidth(2.);
-            ctx->drawEllipse(rim,VSTGUI::kDrawFilledAndStroked);
 
-            VSTGUI::CRect bevel(x-50.,y-50.,x+50.,y+50.);
-            ctx->setFillColor({28,29,31,255});
-            ctx->setFrameColor({155,158,163,220});
+            VSTGUI::CRect metal(x-53.,y-53.,x+53.,y+53.);
+            ctx->setFillColor({72,74,78,255});
+            ctx->setFrameColor({24,25,28,255});
             ctx->setLineWidth(2.);
-            ctx->drawEllipse(bevel,VSTGUI::kDrawFilledAndStroked);
+            ctx->drawEllipse(metal,VSTGUI::kDrawFilledAndStroked);
 
-            VSTGUI::CRect face(x-44.,y-44.,x+44.,y+44.);
-            ctx->setFillColor(on?VSTGUI::CColor{43,45,49,255}:VSTGUI::CColor{31,32,35,255});
-            ctx->setFrameColor(on?VSTGUI::CColor{96,174,225,210}:VSTGUI::CColor{72,74,78,255});
+            VSTGUI::CRect face(x-45.,y-45.,x+45.,y+45.);
+            ctx->setFillColor(on?VSTGUI::CColor{38,40,44,255}:VSTGUI::CColor{28,29,32,255});
+            ctx->setFrameColor({12,13,15,255});
             ctx->setLineWidth(2.);
             ctx->drawEllipse(face,VSTGUI::kDrawFilledAndStroked);
 
-            VSTGUI::CRect highlight(x-36.,y-36.,x+36.,y+36.);
-            ctx->setFrameColor({210,214,220,on?72u:48u});
-            ctx->setLineWidth(1.);
-            ctx->drawEllipse(highlight,VSTGUI::kDrawStroked);
+            ctx->setLineWidth(2.);
+            ctx->setFrameColor(on?VSTGUI::CColor{190,205,220,120}:VSTGUI::CColor{178,182,188,90});
+            ctx->drawLine({x-25.,y-25.},{x+5.,y-35.});
+            ctx->setFrameColor({0,0,0,105});
+            ctx->drawLine({x-6.,y+35.},{x+25.,y+24.});
         }
         setDirty(false);
     }
