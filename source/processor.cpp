@@ -14,7 +14,7 @@ constexpr double kPi=3.14159265358979323846;
 double clamp01(double v){return std::max(0.0,std::min(1.0,v));}
 double dbToGain(double d){return std::pow(10.0,d/20.0);}
 double peakProtect(double x){constexpr double threshold=.94;constexpr double headroom=1.0-threshold;double a=std::abs(x);if(a<=threshold)return x;double y=threshold+headroom*std::tanh((a-threshold)/headroom);return std::copysign(y,x);}
-double shapeDrive(double d){d=clamp01(d);constexpr double pivot=.30;if(d<=pivot){const double u=d/pivot;return pivot*std::pow(u,1.35);}const double u=(d-pivot)/(1.0-pivot);return pivot+(1.0-pivot)*std::pow(u,.78);}
+double shapeDrive(double d){d=clamp01(d);constexpr double pivot=.30;if(d<=pivot){const double u=d/pivot;return pivot*std::pow(u,1.35);}constexpr double join=.40;if(d>=join){const double u=(d-pivot)/(1.0-pivot);return pivot+(1.0-pivot)*std::pow(u,.78);}constexpr double span=join-pivot;constexpr double y0=pivot;constexpr double m0=1.35;const double u1=(join-pivot)/(1.0-pivot);const double y1=pivot+(1.0-pivot)*std::pow(u1,.78);const double m1=.78*std::pow(u1,-.22);const double t=(d-pivot)/span;const double t2=t*t,t3=t2*t;const double h00=2.0*t3-3.0*t2+1.0;const double h10=t3-2.0*t2+t;const double h01=-2.0*t3+3.0*t2;const double h11=t3-t2;return h00*y0+h10*span*m0+h01*y1+h11*span*m1;}
 double highDriveCharacterTrimDb(double effectiveDrive,double wT,double wP,double wI){(void)wI;if(effectiveDrive<=.30)return 0.0;const double t=clamp01((effectiveDrive-.30)/.70);const double t2=t*t;const double tri=(-6.692542930684427*t)+(3.327880038412518*t2);const double pent=(-3.5778484322423374*t)+(7.70367037382395*t2);return wT*tri+wP*pent;}
 }
 Processor::Processor(){setControllerClass(kControllerUID);}
@@ -34,8 +34,6 @@ double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoef
 double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x,s);if(m==kPentode)return shapePentode(x,s);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 tresult PLUGIN_API Processor::process(ProcessData& d){
-    // VST3 hosts may flush parameter changes with no audio buffers. Consume those
-    // changes so processor/controller state (especially bypass) stays synchronized.
     if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0){readParameterChanges(d.inputParameterChanges);return kResultOk;}
     auto&in=d.inputs[0];auto&out=d.outputs[0];int32 chans=std::min<int32>(std::min(in.numChannels,out.numChannels),kMaxChannels);
     struct QueueCursor{IParamValueQueue*q=nullptr;int32 next=0,count=0;ParamID id=0;};
