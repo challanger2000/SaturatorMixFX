@@ -33,7 +33,9 @@ double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoef
 double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x,s);if(m==kPentode)return shapePentode(x,s);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 tresult PLUGIN_API Processor::process(ProcessData& d){
-    if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0)return kResultOk;
+    // VST3 hosts may flush parameter changes with no audio buffers. Consume those
+    // changes so processor/controller state (especially bypass) stays synchronized.
+    if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0){readParameterChanges(d.inputParameterChanges);return kResultOk;}
     auto&in=d.inputs[0];auto&out=d.outputs[0];int32 chans=std::min<int32>(std::min(in.numChannels,out.numChannels),kMaxChannels);
     struct QueueCursor{IParamValueQueue*q=nullptr;int32 next=0,count=0;ParamID id=0;};
     std::array<QueueCursor,5> cursors{};int cursorCount=0;
