@@ -41,12 +41,24 @@ public:
             bool changed=false;
             for(size_t i=0;i<bolts_.size();++i){
                 auto& b=bolts_[i];
-                if(b.ticks>0){ --b.ticks; changed=true; }
-                else if(--b.wait<=0){ makeBolt(i); changed=true; }
+                if(b.stage>0){
+                    if(b.stage<=kLeaderStages){
+                        ++b.stage;
+                        if(b.stage>kLeaderStages) b.flashTicks=2;
+                    } else if(b.flashTicks>0){
+                        --b.flashTicks;
+                        if(b.flashTicks==0){ b.stage=0; b.wait=8+static_cast<int>(random01()*20.); }
+                    }
+                    changed=true;
+                } else if(--b.wait<=0){
+                    makeBolt(i);
+                    changed=true;
+                }
             }
             if(changed) invalid();
         },33);
     }
+
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx||!tube_){setDirty(false);return;}
         constexpr std::array<double,3> cx{{421.,768.,1115.}};
@@ -66,47 +78,95 @@ public:
 
         ctx->setDrawMode(VSTGUI::kAntiAliasing);
         for(const auto& b:bolts_){
-            if(b.ticks<=0) continue;
-            const uint8_t alpha=static_cast<uint8_t>(std::clamp(115+b.ticks*45,0,255));
-            ctx->setLineWidth(7.0);
-            ctx->setFrameColor({0,110,255,static_cast<uint8_t>(alpha/3)});
-            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
-            ctx->setLineWidth(2.5);
-            ctx->setFrameColor({70,180,255,alpha});
-            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            if(b.stage<=0) continue;
+            const bool fullFlash=b.stage>kLeaderStages;
+            const size_t visible=fullFlash ? b.points.size() : std::min<size_t>(b.points.size(),static_cast<size_t>(b.stage+1));
+            if(visible<2) continue;
+
+            const uint8_t mainAlpha=fullFlash?255:220;
+            ctx->setLineWidth(fullFlash?8.0:6.0);
+            ctx->setFrameColor({0,105,255,static_cast<uint8_t>(fullFlash?95:58)});
+            for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            ctx->setLineWidth(fullFlash?3.0:2.3);
+            ctx->setFrameColor({55,175,255,mainAlpha});
+            for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
             ctx->setLineWidth(1.0);
-            ctx->setFrameColor({235,250,255,255});
-            for(size_t p=1;p<b.points.size();++p) ctx->drawLine(b.points[p-1],b.points[p]);
-            ctx->setLineWidth(1.0);
-            ctx->setFrameColor({150,220,255,180});
-            ctx->drawLine(b.points[3],b.branch);
+            ctx->setFrameColor({240,252,255,255});
+            for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
+
+            for(size_t j=0;j<b.branches.size();++j){
+                const auto& br=b.branches[j];
+                if(br.root>=visible) continue;
+                const size_t branchVisible=fullFlash ? br.points.size() : std::min<size_t>(br.points.size(),1u+(visible-br.root));
+                if(branchVisible<2) continue;
+                ctx->setLineWidth(fullFlash?4.0:3.0);
+                ctx->setFrameColor({0,110,255,static_cast<uint8_t>(fullFlash?70:45)});
+                ctx->drawLine(b.points[br.root],br.points[0]);
+                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
+                ctx->setLineWidth(1.4);
+                ctx->setFrameColor({105,205,255,static_cast<uint8_t>(fullFlash?220:175)});
+                ctx->drawLine(b.points[br.root],br.points[0]);
+                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
+                ctx->setLineWidth(.7);
+                ctx->setFrameColor({225,248,255,static_cast<uint8_t>(fullFlash?245:205)});
+                ctx->drawLine(b.points[br.root],br.points[0]);
+                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
+            }
         }
         setDirty(false);
     }
+
 private:
+    static constexpr int kLeaderStages=6;
+    struct Branch {
+        size_t root=0;
+        std::array<VSTGUI::CPoint,3> points{};
+    };
     struct Bolt {
         std::array<VSTGUI::CPoint,7> points{};
-        VSTGUI::CPoint branch{};
-        int ticks=0;
+        std::array<Branch,3> branches{};
+        int stage=0;
+        int flashTicks=0;
         int wait=0;
     };
+
     double random01(){ seed_=1664525u*seed_+1013904223u; return static_cast<double>((seed_>>8)&0x00FFFFFFu)/16777215.0; }
     double randomSigned(double amount){ return (random01()*2.0-1.0)*amount; }
+
     void makeBolt(size_t index){
         static constexpr std::array<double,3> cx{{421.,768.,1115.}};
         auto& b=bolts_[index];
-        const double startY=244.+randomSigned(8.);
-        const double endY=360.+randomSigned(8.);
+        const double startY=238.+randomSigned(5.);
+        const double endY=368.+randomSigned(5.);
         for(size_t p=0;p<b.points.size();++p){
             const double t=static_cast<double>(p)/static_cast<double>(b.points.size()-1);
             const double y=startY+(endY-startY)*t;
-            const double spread=(p==0||p+1==b.points.size())?5.:26.;
-            b.points[p]=VSTGUI::CPoint(cx[index]+randomSigned(spread),y+randomSigned(5.));
+            const double spread=(p==0||p+1==b.points.size())?4.:24.;
+            b.points[p]=VSTGUI::CPoint(cx[index]+randomSigned(spread),y+randomSigned(4.));
         }
-        b.branch=VSTGUI::CPoint(b.points[3].x+randomSigned(34.),b.points[3].y+18.+random01()*24.);
-        b.ticks=2+static_cast<int>(random01()*3.);
-        b.wait=8+static_cast<int>(random01()*20.);
+
+        const std::array<size_t,3> roots{{2,3,4}};
+        for(size_t j=0;j<b.branches.size();++j){
+            auto& br=b.branches[j];
+            br.root=roots[j];
+            const double dir=(random01()<.5?-1.0:1.0);
+            const double reach=22.+random01()*24.;
+            const double drop=14.+random01()*20.;
+            const auto root=b.points[br.root];
+            br.points[0]=VSTGUI::CPoint(root.x+dir*(8.+random01()*7.),root.y+6.+random01()*6.);
+            br.points[1]=VSTGUI::CPoint(root.x+dir*(14.+reach*.45)+randomSigned(4.),root.y+drop*.55+randomSigned(3.));
+            br.points[2]=VSTGUI::CPoint(root.x+dir*reach+randomSigned(3.),root.y+drop+randomSigned(3.));
+            const double minX=cx[index]-58.,maxX=cx[index]+58.;
+            for(auto& p:br.points){
+                p.x=std::clamp(p.x,minX,maxX);
+                p.y=std::clamp(p.y,246.,374.);
+            }
+        }
+        b.stage=1;
+        b.flashTicks=0;
+        b.wait=0;
     }
+
     VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
     std::array<Bolt,3> bolts_{};
