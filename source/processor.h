@@ -2,6 +2,7 @@
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include <array>
+#include <atomic>
 
 namespace SaturatorMixFX {
 
@@ -106,6 +107,11 @@ private:
     std::array<BiquadCoeffs,kOversampleSections> osCoeffs_{};
     std::array<ChannelState,kMaxChannels> channelState_{};
     std::array<MixFxChannelState,kMaxMixFxChannels> mixFxStates_{};
+    std::atomic<double> mixFxTargetBypass_{0.0};
+    std::atomic<double> mixFxTargetDrive_{0.30};
+    std::atomic<double> mixFxTargetCharacter_{0.0};
+    std::atomic<double> mixFxTargetMix_{1.0};
+    std::atomic<double> mixFxTargetOutput_{0.75};
     bool mixFxEngaged_=false;
     Steinberg::int32 mixFxChannelCount_=0;
 };
