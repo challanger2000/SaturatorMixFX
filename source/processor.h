@@ -48,7 +48,7 @@ private:
     double dcBlock(double x,ChannelState& state);
 
     double onOff_=0.0, drive_=0.30, character_=0.0, mix_=1.0, output_=0.75;
-    double sampleRate_=44100.0, smoothDrive_=0.30, smoothMix_=1.0, smoothOutput_=0.75;
+    double sampleRate_=44100.0, smoothDrive_=0.30, smoothCharacter_=0.0, smoothMix_=1.0, smoothOutput_=0.75;
     double smoothCoeff_=0.0, ironMemoryCoeff_=0.0, dcCoeff_=0.995;
     double lowCoeff_=0.0, highCoeff_=0.0, envFastCoeff_=0.0, envSlowCoeff_=0.0;
     double triodeChargeCoeff_=0.0, pentodeChargeCoeff_=0.0, ironFluxCoeff_=0.0;
