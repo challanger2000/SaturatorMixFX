@@ -23,6 +23,7 @@ smtg_add_vst3plugin(SaturatorMixFX
     source/pluginids.h
     source/processor.h
     source/processor.cpp
+    source/mixfx_diagnostics.cpp
     source/controller.h
     source/controller.cpp
     source/editor.h
