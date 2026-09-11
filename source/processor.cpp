@@ -28,29 +28,16 @@ double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 
 tresult PLUGIN_API Processor::process(ProcessData& d){readParameterChanges(d.inputParameterChanges);if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0)return kResultOk;auto&in=d.inputs[0];auto&out=d.outputs[0];int32 chans=std::min<int32>(std::min(in.numChannels,out.numChannels),kMaxChannels);bool bypass=onOff_>=.5;int mode=std::clamp((int)std::lround(character_*2.0),0,2);
- auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();double driveDb=24.0*smoothDrive_,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*smoothDrive_;double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;double comp=dbToGain(trim+baseComp);
+ auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();double driveDb=24.0*smoothDrive_,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*smoothDrive_;double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;
+  // Post-polish reference trim. The transient/tone pass measured about 0.73/0.82/0.34 dB below
+  // the dry reference at the untouched 30% factory Drive. Keep this as a fixed mode calibration
+  // so the new harmonic/transient behaviour is preserved instead of changing the nonlinear curves again.
+  double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?.82:.34));double comp=dbToGain(trim+baseComp+polishTrimDb);
   for(int32 ch=0;ch<chans;++ch){auto*src=srcs[ch];auto*dst=dsts[ch];if(!src||!dst)continue;double x=(double)src[n];auto&s=channelState_[(size_t)ch];if(bypass){dst[n]=(Sample)x;s.previousInput=x;continue;}
-   // Three-band pre-emphasis without crossover phase mismatch in the output: only the nonlinear drive sees it.
-   s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;
-   s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;
-   double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high;
-   double coloured=x;
-   if(mode==kTriode) coloured=.92*low+1.08*mid+.88*high;       // warm vocal/mid density, protected sub/top
-   else if(mode==kPentode) coloured=.84*low+1.12*mid+1.06*high;// bite without wasting distortion on sub
-   else coloured=1.10*low+1.02*mid+.82*high;                  // transformer body and gentle HF rounding
-
-   // Fast/slow envelope contrast detects attacks. Strong attacks back the nonlinear drive off slightly,
-   // preserving punch instead of flattening every drum transient. No lookahead and no pumping gain stage.
-   double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;
-   double transient=std::max(0.0,s.envFast-s.envSlow);double normTransient=transient/(.06+s.envSlow);normTransient=clamp01(normTransient);
-   double protect=(mode==kPentode?.34:(mode==kIron?.24:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
-
-   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;acc+=processNonlinear(interp*dynamicGain,mode,s);}s.previousInput=coloured;
-   double processed=(acc/kOversample)*comp;
-   // Blend a small, attack-dependent clean component back into the wet path. This restores leading edges
-   // while leaving sustained material fully saturated; Pentode gets the most help because it is the firmest mode.
-   double attackBlend=normTransient*(mode==kPentode?.16:(mode==kIron?.11:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;
-   processed=softClip(processed*1.03)/1.03;processed=dcBlock(processed,s);dst[n]=(Sample)((dry*x+wet*processed)*outGain);
+   s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high;double coloured=x;
+   if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.84*low+1.12*mid+1.06*high;else coloured=1.10*low+1.02*mid+.82*high;
+   double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;double transient=std::max(0.0,s.envFast-s.envSlow);double normTransient=clamp01(transient/(.06+s.envSlow));double protect=(mode==kPentode?.34:(mode==kIron?.24:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
+   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;acc+=processNonlinear(interp*dynamicGain,mode,s);}s.previousInput=coloured;double processed=(acc/kOversample)*comp;double attackBlend=normTransient*(mode==kPentode?.16:(mode==kIron?.11:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;processed=softClip(processed*1.03)/1.03;processed=dcBlock(processed,s);dst[n]=(Sample)((dry*x+wet*processed)*outGain);
   }} };
  if(d.symbolicSampleSize==kSample64)run(in.channelBuffers64,out.channelBuffers64);else if(d.symbolicSampleSize==kSample32)run(in.channelBuffers32,out.channelBuffers32);else return kResultFalse;out.silenceFlags=in.silenceFlags;return kResultOk;}
 
