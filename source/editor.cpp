@@ -119,12 +119,6 @@ public:
             ctx->setFrameColor({12,13,15,255});
             ctx->setLineWidth(2.);
             ctx->drawEllipse(face,VSTGUI::kDrawFilledAndStroked);
-
-            ctx->setLineWidth(2.);
-            ctx->setFrameColor(on?VSTGUI::CColor{190,205,220,120}:VSTGUI::CColor{178,182,188,90});
-            ctx->drawLine({x-25.,y-25.},{x+5.,y-35.});
-            ctx->setFrameColor({0,0,0,105});
-            ctx->drawLine({x-6.,y+35.},{x+25.,y+24.});
         }
         setDirty(false);
     }
