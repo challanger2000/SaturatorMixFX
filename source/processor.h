@@ -25,6 +25,7 @@ private:
         double previousInput=0.0, ironMemory=0.0, dcX1=0.0, dcY1=0.0;
         double lowBand=0.0, highSmooth=0.0;
         double envFast=0.0, envSlow=0.0;
+        double aa1=0.0, aa2=0.0;
     };
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
     void resetDsp(); void updateSmoothers();
@@ -35,6 +36,7 @@ private:
     double sampleRate_=44100.0, smoothDrive_=0.30, smoothMix_=1.0, smoothOutput_=0.75;
     double smoothCoeff_=0.0, ironMemoryCoeff_=0.0, dcCoeff_=0.995;
     double lowCoeff_=0.0, highCoeff_=0.0, envFastCoeff_=0.0, envSlowCoeff_=0.0;
+    double aaCoeff_=0.0;
     std::array<ChannelState,kMaxChannels> channelState_{};
 };
 
