@@ -35,46 +35,61 @@ double mixFxPeakProtect(double x)
 double mixFxShapeDrive(double d)
 {
     d = mixFxClamp01(d);
-    constexpr double pivot = .30;
-    if (d <= pivot)
-    {
-        const double u = d / pivot;
-        return pivot * std::pow(u, 1.35);
-    }
+    if (d <= 0.0)
+        return 0.0;
+    if (d >= 1.0)
+        return 1.0;
 
-    constexpr double join = .40;
-    if (d >= join)
-    {
-        const double u = (d - pivot) / (1.0 - pivot);
-        return pivot + (1.0 - pivot) * std::pow(u, .78);
-    }
-
-    constexpr double span = join - pivot;
-    constexpr double y0 = pivot;
-    constexpr double m0 = 1.35;
-    const double u1 = (join - pivot) / (1.0 - pivot);
-    const double y1 = pivot + (1.0 - pivot) * std::pow(u1, .78);
-    const double m1 = .78 * std::pow(u1, -.22);
-    const double t = (d - pivot) / span;
-    const double t2 = t * t;
-    const double t3 = t2 * t;
-    const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-    const double h10 = t3 - 2.0 * t2 + t;
-    const double h01 = -2.0 * t3 + 3.0 * t2;
-    const double h11 = t3 - t2;
-    return h00 * y0 + h10 * span * m0 + h01 * y1 + h11 * span * m1;
+    constexpr double exponent = 1.3012419807039308;
+    constexpr double balance = 0.7747292343480475;
+    const double a = std::pow(d, exponent);
+    const double b = balance * std::pow(1.0 - d, exponent);
+    return a / (a + b);
 }
 
-double mixFxHighDriveCharacterTrimDb(double effectiveDrive, double wT, double wP, double wI)
+double mixFxDriveBlend(double effectiveDrive)
+{
+    const double d = mixFxClamp01(effectiveDrive);
+    if (d <= 0.0)
+        return 0.0;
+    if (d >= 1.0)
+        return 1.0;
+
+    constexpr double exponent = 5.44910344352879;
+    constexpr double knee = 0.113564854687999;
+    const double p = std::pow(d, exponent);
+    const double k = std::pow(knee, exponent);
+    const double raw = p / (p + k);
+    const double endpoint = 1.0 / (1.0 + k);
+    return raw / endpoint;
+}
+
+double mixFxSmootherStep(double d)
+{
+    d = mixFxClamp01(d);
+    return d * d * d * (10.0 - 15.0 * d + 6.0 * d * d);
+}
+
+double mixFxCharacterTrimDb(double drive, double wT, double wP, double wI)
 {
     (void)wI;
-    if (effectiveDrive <= .30)
-        return 0.0;
+    const double s = mixFxSmootherStep(drive);
+    const double s2 = s * s;
+    const double s3 = s2 * s;
+    const double s4 = s3 * s;
 
-    const double t = mixFxClamp01((effectiveDrive - .30) / .70);
-    const double t2 = t * t;
-    const double tri = (-6.692542930684427 * t) + (3.327880038412518 * t2);
-    const double pent = (-3.5778484322423374 * t) + (7.70367037382395 * t2);
+    const double tri =
+        4.522567512112715 * s
+        - 34.02706594845086 * s2
+        + 41.02777776056358 * s3
+        - 14.887942224225434 * s4;
+
+    const double pent =
+        5.165025880904459 * s
+        - 45.37422422361783 * s2
+        + 91.75665840452228 * s3
+        - 47.421638161808914 * s4;
+
     return wT * tri + wP * pent;
 }
 } // namespace
@@ -223,10 +238,10 @@ Steinberg::tresult Processor::processMixFxChannel(
             const double outGain = mixFxDbToGain(-18.0 + 24.0 * mixState.smoothOutput);
             const double trim = (-9.50 * wT - 19.00 * wP - 14.47 * wI) * effectiveDrive;
             const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
-            const double referenceAmount = std::min(1.0, effectiveDrive / .30);
-            const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * referenceAmount;
-            const double highDriveTrimDb = mixFxHighDriveCharacterTrimDb(effectiveDrive, wT, wP, wI);
-            const double comp = mixFxDbToGain(trim + baseComp + polishTrimDb + highDriveTrimDb);
+            const double effectAmount = mixFxDriveBlend(effectiveDrive);
+            const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * effectAmount;
+            const double smoothTrimDb = mixFxCharacterTrimDb(mixState.smoothDrive, wT, wP, wI);
+            const double comp = mixFxDbToGain(trim + baseComp + polishTrimDb + smoothTrimDb);
             const double protect = .18 * wT + .42 * wP + .30 * wI;
             const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
 
@@ -286,7 +301,7 @@ Steinberg::tresult Processor::processMixFxChannel(
                 const double mixed = dry * cleanOs + wet * processed;
                 const double active = (wet <= 1.0e-6 || effectiveDrive <= 1.0e-12)
                     ? x
-                    : (cleanOs + referenceAmount * (mixed - cleanOs));
+                    : (cleanOs + effectAmount * (mixed - cleanOs));
                 dst[n] = static_cast<Sample>(bypass ? x : (active * outGain));
             }
         }
