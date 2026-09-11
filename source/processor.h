@@ -21,22 +21,38 @@ public:
 private:
     static constexpr int kMaxChannels = 2;
     static constexpr int kOversample = 4;
+    static constexpr int kOversampleSections = 8;
+
+    struct BiquadState {
+        double z1=0.0, z2=0.0;
+    };
+    struct BiquadCoeffs {
+        double b0=1.0, b1=0.0, b2=0.0, a1=0.0, a2=0.0;
+    };
     struct ChannelState {
         double previousInput=0.0, ironMemory=0.0, dcX1=0.0, dcY1=0.0;
         double lowBand=0.0, highSmooth=0.0;
         double envFast=0.0, envSlow=0.0;
-        double aa1=0.0, aa2=0.0;
+        std::array<BiquadState,kOversampleSections> osUp{};
+        std::array<BiquadState,kOversampleSections> osDown{};
     };
+
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
-    void resetDsp(); void updateSmoothers();
-    double shapeTriode(double x) const; double shapePentode(double x) const;
-    double shapeIron(double x, ChannelState& state); double processNonlinear(double x,int mode,ChannelState& state);
+    void resetDsp();
+    void updateSmoothers();
+    void designOversamplingFilters();
+    double runOversamplingFilter(double x, std::array<BiquadState,kOversampleSections>& state) const;
+    double shapeTriode(double x) const;
+    double shapePentode(double x) const;
+    double shapeIron(double x, ChannelState& state);
+    double processNonlinear(double x,int mode,ChannelState& state);
     double dcBlock(double x,ChannelState& state);
+
     double onOff_=0.0, drive_=0.30, character_=0.0, mix_=1.0, output_=0.75;
     double sampleRate_=44100.0, smoothDrive_=0.30, smoothMix_=1.0, smoothOutput_=0.75;
     double smoothCoeff_=0.0, ironMemoryCoeff_=0.0, dcCoeff_=0.995;
     double lowCoeff_=0.0, highCoeff_=0.0, envFastCoeff_=0.0, envSlowCoeff_=0.0;
-    double aaCoeff_=0.0;
+    std::array<BiquadCoeffs,kOversampleSections> osCoeffs_{};
     std::array<ChannelState,kMaxChannels> channelState_{};
 };
 
