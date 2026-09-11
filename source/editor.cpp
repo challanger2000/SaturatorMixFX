@@ -85,10 +85,68 @@ private: EditController*controller_=nullptr; bool dragging_=false; double startY
 
 class ModeView final : public VSTGUI::CView {
 public:
-    ModeView(const VSTGUI::CRect&r,EditController*c):CView(r),controller_(c){ off_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_OFF.png")); pressed_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_PRESSED.png")); ring_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_Ring_Blue.png")); setMouseEnabled(true); timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){invalid();},50); }
-    void draw(VSTGUI::CDrawContext*ctx) override { if(!ctx||!controller_){setDirty(false);return;} bool bypass=isBypassed(controller_); int active=characterIndex(controller_); constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=742.,size=130.; for(int i=0;i<3;++i){bool on=!bypass&&active==i; VSTGUI::CRect dst(cx[i]-size/2.,cy-size/2.,cx[i]+size/2.,cy+size/2.); auto&body=on?pressed_:off_; if(body)body->draw(ctx,dst,{0,0},1.f); if(on&&ring_)ring_->draw(ctx,dst,{0,0},1.f);} setDirty(false); }
-    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override { if(!controller_)return VSTGUI::kMouseEventNotHandled; constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=742.,size=130.; for(int i=0;i<3;++i){double dx=p.x-cx[i],dy=p.y-cy; if(dx*dx+dy*dy<=(size*.5)*(size*.5)){bool bypass=isBypassed(controller_);int active=characterIndex(controller_);if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}invalid();return VSTGUI::kMouseEventHandled;}} return VSTGUI::kMouseEventHandled; }
-private: EditController*controller_=nullptr; VSTGUI::SharedPointer<VSTGUI::CBitmap>off_,pressed_,ring_; VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer>timer_;
+    ModeView(const VSTGUI::CRect&r,EditController*c):CView(r),controller_(c){setMouseEnabled(true);timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){invalid();},50);}
+    void draw(VSTGUI::CDrawContext*ctx) override {
+        if(!ctx||!controller_){setDirty(false);return;}
+        const bool bypass=isBypassed(controller_);
+        const int active=characterIndex(controller_);
+        ctx->setDrawMode(VSTGUI::kAntiAliasing);
+        for(int i=0;i<3;++i){
+            const bool on=!bypass&&active==i;
+            const double x=kModeCx[i], y=kModeCy;
+            if(on){
+                VSTGUI::CRect halo(x-59.,y-59.,x+59.,y+59.);
+                ctx->setFillColor({0,120,255,42});
+                ctx->setFrameColor({0,153,255,255});
+                ctx->setLineWidth(5.);
+                ctx->drawEllipse(halo,VSTGUI::kDrawFilledAndStroked);
+            }
+            VSTGUI::CRect rim(x-56.,y-56.,x+56.,y+56.);
+            ctx->setFillColor({78,80,84,255});
+            ctx->setFrameColor({18,19,21,255});
+            ctx->setLineWidth(2.);
+            ctx->drawEllipse(rim,VSTGUI::kDrawFilledAndStroked);
+
+            VSTGUI::CRect bevel(x-50.,y-50.,x+50.,y+50.);
+            ctx->setFillColor({28,29,31,255});
+            ctx->setFrameColor({155,158,163,220});
+            ctx->setLineWidth(2.);
+            ctx->drawEllipse(bevel,VSTGUI::kDrawFilledAndStroked);
+
+            VSTGUI::CRect face(x-44.,y-44.,x+44.,y+44.);
+            ctx->setFillColor(on?VSTGUI::CColor{43,45,49,255}:VSTGUI::CColor{31,32,35,255});
+            ctx->setFrameColor(on?VSTGUI::CColor{96,174,225,210}:VSTGUI::CColor{72,74,78,255});
+            ctx->setLineWidth(2.);
+            ctx->drawEllipse(face,VSTGUI::kDrawFilledAndStroked);
+
+            VSTGUI::CRect highlight(x-36.,y-36.,x+36.,y+36.);
+            ctx->setFrameColor({210,214,220,on?72u:48u});
+            ctx->setLineWidth(1.);
+            ctx->drawEllipse(highlight,VSTGUI::kDrawStroked);
+        }
+        setDirty(false);
+    }
+    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override {
+        if(!controller_)return VSTGUI::kMouseEventNotHandled;
+        for(int i=0;i<3;++i){
+            const double dx=p.x-kModeCx[i],dy=p.y-kModeCy;
+            if(dx*dx+dy*dy<=kModeHitRadius*kModeHitRadius){
+                const bool bypass=isBypassed(controller_);
+                const int active=characterIndex(controller_);
+                if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);
+                else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}
+                invalid();
+                return VSTGUI::kMouseEventHandled;
+            }
+        }
+        return VSTGUI::kMouseEventHandled;
+    }
+private:
+    static constexpr std::array<double,3> kModeCx{{1065.,1231.,1398.}};
+    static constexpr double kModeCy=742.;
+    static constexpr double kModeHitRadius=56.;
+    EditController*controller_=nullptr;
+    VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer>timer_;
 };
 
 class ZoomView final : public VSTGUI::CView {
