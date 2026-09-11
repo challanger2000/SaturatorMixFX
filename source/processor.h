@@ -35,6 +35,12 @@ private:
         std::array<BiquadState,kOversampleSections> cleanUp{};
         std::array<BiquadState,kOversampleSections> cleanDown{};
     };
+    struct CoreParams {
+        double drive=0.30;
+        double character=0.0;
+        double mix=1.0;
+        double output=0.75;
+    };
 
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
     void resetDsp();
@@ -46,6 +52,7 @@ private:
     double shapeIron(double x, ChannelState& state);
     double processNonlinear(double x,int mode,ChannelState& state);
     double dcBlock(double x,ChannelState& state);
+    double processCoreSample(double x, ChannelState& state, const CoreParams& params);
 
     double onOff_=0.0, drive_=0.30, character_=0.0, mix_=1.0, output_=0.75;
     double sampleRate_=44100.0, smoothDrive_=0.30, smoothCharacter_=0.0, smoothMix_=1.0, smoothOutput_=0.75;
