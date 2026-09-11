@@ -73,6 +73,12 @@ private:
         std::array<BiquadState,kOversampleSections> cleanUp{};
         std::array<BiquadState,kOversampleSections> cleanDown{};
     };
+    struct CoreParams {
+        double drive=0.30;
+        double character=0.0;
+        double mix=1.0;
+        double output=0.75;
+    };
     struct MixFxChannelState {
         std::array<ChannelState,kMaxChannels> dsp{};
         double targetBypass=0.0;
@@ -96,6 +102,7 @@ private:
     double shapeIron(double x, ChannelState& state);
     double processNonlinear(double x,int mode,ChannelState& state);
     double dcBlock(double x,ChannelState& state);
+    double processCoreSample(double x, ChannelState& state, const CoreParams& params);
     Steinberg::tresult processMixFxChannel(Steinberg::int32 index, Steinberg::Vst::ProcessData& data);
     void resetMixFxStates();
 
