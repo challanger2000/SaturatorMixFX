@@ -5,8 +5,9 @@
 
 namespace SaturatorMixFX {
 
-static const Steinberg::FUID kProcessorUID (0x74D9F51A, 0x2E754BC8, 0xA9439C72, 0x1DB0A1F4);
-static const Steinberg::FUID kControllerUID (0x1D27F0E2, 0xA98442CE, 0xB8B0B6D1, 0x90E83753);
+// Dedicated IDs for the Studio One Mix FX build. Keep separate from the normal Channel VST3.
+static const Steinberg::FUID kProcessorUID (0xA54E2D71, 0x6C8B4F29, 0x9E134A62, 0xC7D5B801);
+static const Steinberg::FUID kControllerUID (0x3F91C6A4, 0xD2E7485B, 0xB06A1F93, 0x74CE520D);
 
 constexpr Steinberg::Vst::ParamID kParamOnOff      = 99;
 constexpr Steinberg::Vst::ParamID kParamDrive      = 100;
