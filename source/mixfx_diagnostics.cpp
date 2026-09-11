@@ -41,8 +41,28 @@ double mixFxShapeDrive(double d)
         const double u = d / pivot;
         return pivot * std::pow(u, 1.35);
     }
-    const double u = (d - pivot) / (1.0 - pivot);
-    return pivot + (1.0 - pivot) * std::pow(u, .78);
+
+    constexpr double join = .40;
+    if (d >= join)
+    {
+        const double u = (d - pivot) / (1.0 - pivot);
+        return pivot + (1.0 - pivot) * std::pow(u, .78);
+    }
+
+    constexpr double span = join - pivot;
+    constexpr double y0 = pivot;
+    constexpr double m0 = 1.35;
+    const double u1 = (join - pivot) / (1.0 - pivot);
+    const double y1 = pivot + (1.0 - pivot) * std::pow(u1, .78);
+    const double m1 = .78 * std::pow(u1, -.22);
+    const double t = (d - pivot) / span;
+    const double t2 = t * t;
+    const double t3 = t2 * t;
+    const double h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    const double h10 = t3 - 2.0 * t2 + t;
+    const double h01 = -2.0 * t3 + 3.0 * t2;
+    const double h11 = t3 - t2;
+    return h00 * y0 + h10 * span * m0 + h01 * y1 + h11 * span * m1;
 }
 
 double mixFxHighDriveCharacterTrimDb(double effectiveDrive, double wT, double wP, double wI)
@@ -157,10 +177,6 @@ Steinberg::tresult Processor::processMixFxChannel(
         }
     }
 
-    // Studio One may deliver a parameter queue to one private channel callback
-    // before the other callbacks see it. Publish the resolved targets atomically
-    // so every participating mixer channel converges to the same parameter state
-    // on the following block instead of being pulled back to stale global values.
     if (receivedParameterChange)
     {
         mixFxTargetBypass_.store(mixState.targetBypass, std::memory_order_relaxed);
