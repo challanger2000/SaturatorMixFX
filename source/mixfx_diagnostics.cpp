@@ -267,8 +267,10 @@ Steinberg::tresult Processor::processMixFxChannel(
                 processed = processed * (1.0 - attackBlend) + cleanOs * attackBlend;
                 processed = mixFxPeakProtect(processed);
                 processed = dcBlock(processed, s);
-                const double mixed = (wet <= 1.0e-6) ? x : (dry * cleanOs + wet * processed);
-                const double active = x + referenceAmount * (mixed - x);
+                const double mixed = dry * cleanOs + wet * processed;
+                const double active = (wet <= 1.0e-6 || effectiveDrive <= 1.0e-12)
+                    ? x
+                    : (cleanOs + referenceAmount * (mixed - cleanOs));
                 dst[n] = static_cast<Sample>(bypass ? x : (active * outGain));
             }
         }
