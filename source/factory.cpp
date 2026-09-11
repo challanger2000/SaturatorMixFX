@@ -5,7 +5,7 @@
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 
-#define stringPluginName "SaturatorMixFX"
+#define stringPluginName "SMX-3 Channel"
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
