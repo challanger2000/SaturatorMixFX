@@ -43,33 +43,16 @@ double shapeDrive(double d)
     return a / (a + b);
 }
 
-double driveBlend(double effectiveDrive)
-{
-    const double d = clamp01(effectiveDrive);
-    if (d <= 0.0)
-        return 0.0;
-    if (d >= 1.0)
-        return 1.0;
-
-    constexpr double exponent = 5.44910344352879;
-    constexpr double knee = 0.113564854687999;
-    const double p = std::pow(d, exponent);
-    const double k = std::pow(knee, exponent);
-    const double raw = p / (p + k);
-    const double endpoint = 1.0 / (1.0 + k);
-    return raw / endpoint;
-}
-
 double smootherStep(double d)
 {
     d = clamp01(d);
     return d * d * d * (10.0 - 15.0 * d + 6.0 * d * d);
 }
 
-double characterTrimDb(double drive, double wT, double wP, double wI)
+double characterTrimDb(double effectiveDrive, double wT, double wP, double wI)
 {
     (void)wI;
-    const double s = smootherStep(drive);
+    const double s = smootherStep(effectiveDrive);
     const double s2 = s * s;
     const double s3 = s2 * s;
     const double s4 = s3 * s;
@@ -292,6 +275,80 @@ double Processor::dcBlock(double x, ChannelState& s)
     return y;
 }
 
+double Processor::processCoreSample(double x, ChannelState& s, const CoreParams& params)
+{
+    const double pos = clamp01(params.character) * 2.0;
+    const double wT = std::max(0.0, 1.0 - pos);
+    const double wI = std::max(0.0, pos - 1.0);
+    const double wP = 1.0 - wT - wI;
+
+    const double effectiveDrive = shapeDrive(params.drive);
+    const double driveDb = 24.0 * effectiveDrive;
+    const double inputGain = dbToGain(driveDb);
+    const double wet = clamp01(params.mix);
+    const double dry = 1.0 - wet;
+    const double outGain = dbToGain(-18.0 + 24.0 * clamp01(params.output));
+
+    const double trim = (-9.50 * wT - 19.00 * wP - 14.47 * wI) * effectiveDrive;
+    const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
+    const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * effectiveDrive;
+    const double smoothTrimDb = characterTrimDb(effectiveDrive, wT, wP, wI);
+    const double comp = dbToGain(trim + baseComp + polishTrimDb + smoothTrimDb);
+
+    const double protect = .18 * wT + .42 * wP + .30 * wI;
+    const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
+
+    s.lowBand = lowCoeff_ * s.lowBand + (1.0 - lowCoeff_) * x;
+    s.highSmooth = highCoeff_ * s.highSmooth + (1.0 - highCoeff_) * x;
+    const double low = s.lowBand;
+    const double high = x - s.highSmooth;
+    const double mid = x - low - high;
+
+    const double triCol = .94 * low + 1.09 * mid + .84 * high;
+    const double penCol = .84 * low + 1.10 * mid + 1.07 * high;
+    const double ironCol = 1.13 * low + 1.025 * mid + .80 * high;
+    const double coloured = wT * triCol + wP * penCol + wI * ironCol;
+
+    const double a = std::abs(x);
+    s.envFast = envFastCoeff_ * s.envFast + (1.0 - envFastCoeff_) * a;
+    s.envSlow = envSlowCoeff_ * s.envSlow + (1.0 - envSlowCoeff_) * a;
+    const double transient = std::max(0.0, s.envFast - s.envSlow);
+    const double normTransient = clamp01(transient / (.06 + s.envSlow));
+    const double dynamicGain = inputGain * (1.0 - protect * normTransient);
+
+    double processedOs = 0.0;
+    double cleanOs = 0.0;
+    for (int os = 0; os < kOversample; ++os)
+    {
+        const double stuffed = (os == 0) ? (coloured * static_cast<double>(kOversample)) : 0.0;
+        const double cleanStuffed = (os == 0) ? (x * static_cast<double>(kOversample)) : 0.0;
+        const double up = runOversamplingFilter(stuffed, s.osUp);
+        const double cleanUp = runOversamplingFilter(cleanStuffed, s.cleanUp);
+        const double nlT = shapeTriode(up * dynamicGain, s);
+        const double nlP = shapePentode(up * dynamicGain, s);
+        const double nlI = shapeIron(up * dynamicGain, s);
+        const double nl = wT * nlT + wP * nlP + wI * nlI;
+        const double filtered = runOversamplingFilter(nl, s.osDown);
+        const double cleanFiltered = runOversamplingFilter(cleanUp, s.cleanDown);
+
+        if (os == kOversample - 1)
+        {
+            processedOs = filtered;
+            cleanOs = cleanFiltered;
+        }
+    }
+
+    double processed = processedOs * comp;
+    const double attackBlend = normTransient * attackAmount;
+    processed = processed * (1.0 - attackBlend) + cleanOs * attackBlend;
+    processed = peakProtect(processed);
+    processed = dcBlock(processed, s);
+
+    const double wetSignal = cleanOs + effectiveDrive * (processed - cleanOs);
+    const double mixed = dry * cleanOs + wet * wetSignal;
+    return mixed * outGain;
+}
+
 tresult PLUGIN_API Processor::process(ProcessData& d)
 {
     if (mixFxEngaged_)
@@ -306,7 +363,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
             auto& inBus = d.inputs[b];
             auto& outBus = d.outputs[b];
             const int32 channels = std::min(inBus.numChannels, outBus.numChannels);
-
             if (d.symbolicSampleSize == kSample64)
             {
                 for (int32 ch = 0; ch < channels; ++ch)
@@ -333,7 +389,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
             }
             else
                 return kResultFalse;
-
             outBus.silenceFlags = inBus.silenceFlags;
         }
         return kResultOk;
@@ -356,10 +411,8 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
         int32 count = 0;
         ParamID id = 0;
     };
-
     std::array<QueueCursor, 5> cursors{};
     int cursorCount = 0;
-
     if (d.inputParameterChanges)
     {
         for (int32 i = 0; i < d.inputParameterChanges->getParameterCount() && cursorCount < static_cast<int>(cursors.size()); ++i)
@@ -390,7 +443,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
                 }
                 if (off > sample)
                     break;
-
                 v = clamp01(v);
                 switch (c.id)
                 {
@@ -407,40 +459,16 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
     };
 
     bool allBypassed = true;
-
     auto run = [&](auto** srcs, auto** dsts)
     {
         using Sample = std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;
-
         for (int32 n = 0; n < d.numSamples; ++n)
         {
             applyAutomation(n);
             updateSmoothers();
-
             const bool bypass = onOff_ >= .5;
             allBypassed = allBypassed && bypass;
-
-            const double pos = clamp01(smoothCharacter_) * 2.0;
-            const double wT = std::max(0.0, 1.0 - pos);
-            const double wI = std::max(0.0, pos - 1.0);
-            const double wP = 1.0 - wT - wI;
-
-            const double effectiveDrive = shapeDrive(smoothDrive_);
-            const double driveDb = 24.0 * effectiveDrive;
-            const double inputGain = dbToGain(driveDb);
-            const double wet = smoothMix_;
-            const double dry = 1.0 - wet;
-            const double outGain = dbToGain(-18.0 + 24.0 * smoothOutput_);
-
-            const double trim = (-9.50 * wT - 19.00 * wP - 14.47 * wI) * effectiveDrive;
-            const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
-            const double effectAmount = driveBlend(effectiveDrive);
-            const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * effectAmount;
-            const double smoothTrimDb = characterTrimDb(smoothDrive_, wT, wP, wI);
-            const double comp = dbToGain(trim + baseComp + polishTrimDb + smoothTrimDb);
-
-            const double protect = .18 * wT + .42 * wP + .30 * wI;
-            const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
+            const CoreParams params{smoothDrive_, smoothCharacter_, smoothMix_, smoothOutput_};
 
             for (int32 ch = 0; ch < chans; ++ch)
             {
@@ -448,63 +476,10 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
                 auto* dst = dsts[ch];
                 if (!src || !dst)
                     continue;
-
                 const double x = static_cast<double>(src[n]);
-                auto& s = channelState_[static_cast<size_t>(ch)];
-
-                s.lowBand = lowCoeff_ * s.lowBand + (1.0 - lowCoeff_) * x;
-                s.highSmooth = highCoeff_ * s.highSmooth + (1.0 - highCoeff_) * x;
-                const double low = s.lowBand;
-                const double high = x - s.highSmooth;
-                const double mid = x - low - high;
-
-                const double triCol = .94 * low + 1.09 * mid + .84 * high;
-                const double penCol = .84 * low + 1.10 * mid + 1.07 * high;
-                const double ironCol = 1.13 * low + 1.025 * mid + .80 * high;
-                const double coloured = wT * triCol + wP * penCol + wI * ironCol;
-
-                const double a = std::abs(x);
-                s.envFast = envFastCoeff_ * s.envFast + (1.0 - envFastCoeff_) * a;
-                s.envSlow = envSlowCoeff_ * s.envSlow + (1.0 - envSlowCoeff_) * a;
-                const double transient = std::max(0.0, s.envFast - s.envSlow);
-                const double normTransient = clamp01(transient / (.06 + s.envSlow));
-                const double dynamicGain = inputGain * (1.0 - protect * normTransient);
-
-                double processedOs = 0.0;
-                double cleanOs = 0.0;
-
-                for (int os = 0; os < kOversample; ++os)
-                {
-                    const double stuffed = (os == 0) ? (coloured * static_cast<double>(kOversample)) : 0.0;
-                    const double cleanStuffed = (os == 0) ? (x * static_cast<double>(kOversample)) : 0.0;
-                    const double up = runOversamplingFilter(stuffed, s.osUp);
-                    const double cleanUp = runOversamplingFilter(cleanStuffed, s.cleanUp);
-                    const double nlT = shapeTriode(up * dynamicGain, s);
-                    const double nlP = shapePentode(up * dynamicGain, s);
-                    const double nlI = shapeIron(up * dynamicGain, s);
-                    const double nl = wT * nlT + wP * nlP + wI * nlI;
-                    const double filtered = runOversamplingFilter(nl, s.osDown);
-                    const double cleanFiltered = runOversamplingFilter(cleanUp, s.cleanDown);
-
-                    if (os == kOversample - 1)
-                    {
-                        processedOs = filtered;
-                        cleanOs = cleanFiltered;
-                    }
-                }
-
-                double processed = processedOs * comp;
-                const double attackBlend = normTransient * attackAmount;
-                processed = processed * (1.0 - attackBlend) + cleanOs * attackBlend;
-                processed = peakProtect(processed);
-                processed = dcBlock(processed, s);
-
-                const double mixed = dry * cleanOs + wet * processed;
-                const double active = (wet <= 1.0e-6 || effectiveDrive <= 1.0e-12)
-                    ? x
-                    : (cleanOs + effectAmount * (mixed - cleanOs));
-
-                dst[n] = static_cast<Sample>(bypass ? x : (active * outGain));
+                auto& state = channelState_[static_cast<size_t>(ch)];
+                const double y = processCoreSample(x, state, params);
+                dst[n] = static_cast<Sample>(bypass ? x : y);
             }
         }
     };
@@ -524,12 +499,10 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
 {
     if (!s)
         return kResultFalse;
-
     IBStreamer f(s, kLittleEndian);
     double b = 0, dr = .30, c = 0, m = 1, o = .75;
     if (!f.readDouble(b) || !f.readDouble(dr) || !f.readDouble(c) || !f.readDouble(m) || !f.readDouble(o))
         return kResultFalse;
-
     onOff_ = clamp01(b);
     drive_ = clamp01(dr);
     character_ = clamp01(c);
@@ -546,7 +519,6 @@ tresult PLUGIN_API Processor::getState(IBStream* s)
 {
     if (!s)
         return kResultFalse;
-
     IBStreamer f(s, kLittleEndian);
     f.writeDouble(onOff_);
     f.writeDouble(drive_);
