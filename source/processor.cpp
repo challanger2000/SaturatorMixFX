@@ -13,8 +13,6 @@ namespace {
 constexpr double kPi=3.14159265358979323846;
 double clamp01(double v){return std::max(0.0,std::min(1.0,v));}
 double dbToGain(double d){return std::pow(10.0,d/20.0);}
-// Transparent safety stage: completely linear below -0.54 dBFS. Only the last 6% of headroom
-// bends smoothly toward full scale, so normal transients are no longer compressed by an always-on tanh.
 double peakProtect(double x){constexpr double threshold=.94;constexpr double headroom=1.0-threshold;double a=std::abs(x);if(a<=threshold)return x;double y=threshold+headroom*std::tanh((a-threshold)/headroom);return std::copysign(y,x);}
 }
 
@@ -29,8 +27,28 @@ void Processor::updateSmoothers(){double a=1.0-smoothCoeff_;smoothDrive_=smoothC
 void Processor::readParameterChanges(IParameterChanges* c){if(!c)return;for(int32 i=0;i<c->getParameterCount();++i){auto*q=c->getParameterData(i);if(!q||q->getPointCount()<=0)continue;int32 off=0;ParamValue v=0;if(q->getPoint(q->getPointCount()-1,off,v)!=kResultTrue)continue;switch(q->getParameterId()){case kParamOnOff:onOff_=clamp01(v);break;case kParamDrive:drive_=clamp01(v);break;case kParamCharacter:character_=clamp01(v);break;case kParamMix:mix_=clamp01(v);break;case kParamOutput:output_=clamp01(v);break;default:break;}}}
 
 double Processor::shapeTriode(double x)const{constexpr double b=.22;double p=std::tanh(1.18*x+b)-std::tanh(b),n=std::tanh(.92*x-.55*b)+std::tanh(.55*b);double y=.64*p+.36*n;y+=.075*x*x/(1.0+1.8*std::abs(x));return y;}
-double Processor::shapePentode(double x)const{return .58*std::tanh(1.55*x)+.27*std::tanh(2.85*x)+.15*std::atan(2.2*x)*(2.0/kPi);}
-double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;double m=s.ironMemory,f=x+.22*m;return .72*std::tanh(1.22*f)+.28*f/(1.0+.42*std::abs(f))+.035*m*std::abs(m);}
+
+// Pentode stays brighter and more odd-harmonic than Triode, but the transfer is no longer dominated
+// by two hard tanh stages. A controlled quasi-linear branch keeps attacks alive at moderate Drive.
+double Processor::shapePentode(double x)const{
+    double a=.46*std::tanh(1.32*x);
+    double b=.18*std::tanh(2.15*x);
+    double c=.16*std::atan(1.75*x)*(2.0/kPi);
+    double d=.20*x/(1.0+.18*std::abs(x));
+    return a+b+c+d;
+}
+
+// Iron remains stateful. Less static clipping plus a slightly stronger memory term gives magnetic
+// colour without turning the mode into a peak limiter at the factory setting.
+double Processor::shapeIron(double x,ChannelState&s){
+    s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;
+    double m=s.ironMemory,f=x+.24*m;
+    double core=.58*std::tanh(1.10*f);
+    double soft=.30*f/(1.0+.30*std::abs(f));
+    double linear=.12*f;
+    double hysteretic=.045*m*std::abs(m);
+    return core+soft+linear+hysteretic;
+}
 double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x);if(m==kPentode)return shapePentode(x);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 
@@ -38,10 +56,9 @@ tresult PLUGIN_API Processor::process(ProcessData& d){readParameterChanges(d.inp
  auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();double driveDb=24.0*smoothDrive_,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*smoothDrive_;double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?.82:.34));double comp=dbToGain(trim+baseComp+polishTrimDb);
   for(int32 ch=0;ch<chans;++ch){auto*src=srcs[ch];auto*dst=dsts[ch];if(!src||!dst)continue;double x=(double)src[n];auto&s=channelState_[(size_t)ch];if(bypass){dst[n]=(Sample)x;s.previousInput=x;continue;}
    s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high;double coloured=x;
-   if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.84*low+1.12*mid+1.06*high;else coloured=1.10*low+1.02*mid+.82*high;
-   double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;double transient=std::max(0.0,s.envFast-s.envSlow);double normTransient=clamp01(transient/(.06+s.envSlow));double protect=(mode==kPentode?.34:(mode==kIron?.24:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
-   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;acc+=processNonlinear(interp*dynamicGain,mode,s);}s.previousInput=coloured;double processed=(acc/kOversample)*comp;double attackBlend=normTransient*(mode==kPentode?.16:(mode==kIron?.11:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;
-   // Do not globally re-saturate the already modelled signal. Protect only genuine near-full-scale excursions.
+   if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.86*low+1.09*mid+1.04*high;else coloured=1.10*low+1.02*mid+.84*high;
+   double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;double transient=std::max(0.0,s.envFast-s.envSlow);double normTransient=clamp01(transient/(.06+s.envSlow));double protect=(mode==kPentode?.42:(mode==kIron?.30:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
+   double acc=0.0,prev=s.previousInput;for(int os=0;os<kOversample;++os){double t=(double)(os+1)/kOversample;double interp=prev+(coloured-prev)*t;acc+=processNonlinear(interp*dynamicGain,mode,s);}s.previousInput=coloured;double processed=(acc/kOversample)*comp;double attackBlend=normTransient*(mode==kPentode?.22:(mode==kIron?.15:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;
    processed=peakProtect(processed);processed=dcBlock(processed,s);dst[n]=(Sample)((dry*x+wet*processed)*outGain);
   }} };
  if(d.symbolicSampleSize==kSample64)run(in.channelBuffers64,out.channelBuffers64);else if(d.symbolicSampleSize==kSample32)run(in.channelBuffers32,out.channelBuffers32);else return kResultFalse;out.silenceFlags=in.silenceFlags;return kResultOk;}
