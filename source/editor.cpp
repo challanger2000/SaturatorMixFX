@@ -60,12 +60,7 @@ public:
             VSTGUI::CGraphicsTransform transform;
             transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
             VSTGUI::CDrawContext::Transform guard(*ctx,transform);
-
-            // One completely fixed master cell. Geometry never changes.
             tube_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),1.f);
-
-            // The transparent mask has exactly the same source dimensions as the
-            // master cell. Only its opacity changes, so the light cannot wander.
             if(glow_ && glow_->getWidth()==srcW && glow_->getHeight()==srcH)
                 glow_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),glowAlpha);
         }
@@ -91,8 +86,8 @@ private: EditController*controller_=nullptr; bool dragging_=false; double startY
 class ModeView final : public VSTGUI::CView {
 public:
     ModeView(const VSTGUI::CRect&r,EditController*c):CView(r),controller_(c){ off_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_OFF.png")); pressed_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_PRESSED.png")); ring_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Button_Ring_Blue.png")); setMouseEnabled(true); timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){invalid();},50); }
-    void draw(VSTGUI::CDrawContext*ctx) override { if(!ctx||!controller_){setDirty(false);return;} bool bypass=isBypassed(controller_); int active=characterIndex(controller_); constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=742.,size=130.; for(int i=0;i<3;++i){bool on=!bypass&&active==i; VSTGUI::CRect dst(cx[i]-size/2.,cy-size/2.,cx[i]+size/2.,cy+size/2.); auto&body=on?pressed_:off_; if(body)body->draw(ctx,dst,{0,0},1.f); if(on&&ring_)ring_->draw(ctx,dst,{0,0},1.f);} setDirty(false); }
-    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override { if(!controller_)return VSTGUI::kMouseEventNotHandled; constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=742.,size=130.; for(int i=0;i<3;++i){double dx=p.x-cx[i],dy=p.y-cy; if(dx*dx+dy*dy<=(size*.5)*(size*.5)){bool bypass=isBypassed(controller_);int active=characterIndex(controller_);if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}invalid();return VSTGUI::kMouseEventHandled;}} return VSTGUI::kMouseEventHandled; }
+    void draw(VSTGUI::CDrawContext*ctx) override { if(!ctx||!controller_){setDirty(false);return;} bool bypass=isBypassed(controller_); int active=characterIndex(controller_); constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=754.,size=142.; for(int i=0;i<3;++i){bool on=!bypass&&active==i; VSTGUI::CRect dst(cx[i]-size/2.,cy-size/2.,cx[i]+size/2.,cy+size/2.); auto&body=on?pressed_:off_; if(body)body->draw(ctx,dst,{0,0},1.f); if(on&&ring_)ring_->draw(ctx,dst,{0,0},1.f);} setDirty(false); }
+    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override { if(!controller_)return VSTGUI::kMouseEventNotHandled; constexpr std::array<double,3>cx{{1065.,1231.,1398.}}; constexpr double cy=754.,size=142.; for(int i=0;i<3;++i){double dx=p.x-cx[i],dy=p.y-cy; if(dx*dx+dy*dy<=(size*.5)*(size*.5)){bool bypass=isBypassed(controller_);int active=characterIndex(controller_);if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}invalid();return VSTGUI::kMouseEventHandled;}} return VSTGUI::kMouseEventHandled; }
 private: EditController*controller_=nullptr; VSTGUI::SharedPointer<VSTGUI::CBitmap>off_,pressed_,ring_; VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer>timer_;
 };
 
@@ -108,6 +103,6 @@ private: SMX3Editor*editor_=nullptr;
 
 SMX3Editor::SMX3Editor(Steinberg::Vst::EditController*c):VSTGUI::VST3Editor(c,"view","SMX3.uidesc"),controller_(c){setZoomFactor(.68);setAllowedZoomFactors({.50,.68});}
 void SMX3Editor::setUserZoom(double f){if(f==.50||f==.68)setZoomFactor(f);}
-VSTGUI::CView* SMX3Editor::createView(const VSTGUI::UIAttributes&a,const VSTGUI::IUIDescription*d){if(const auto n=a.getAttributeValue(VSTGUI::IUIDescription::kCustomViewName)){if(*n=="TubeGlow")return new TubeGlowView({0,0,1536,520});if(*n=="Underlight")return new BitmapView({243,895,1293,965},"SMX3_Base_Underlight.png");if(*n=="Drive")return new DriveView({618,553,918,853},controller_);if(*n=="Mode")return new ModeView({990,660,1468,825},controller_);if(*n=="UiZoom")return new ZoomView({1370,70,1450,102},this);}return VSTGUI::VST3Editor::createView(a,d);}
+VSTGUI::CView* SMX3Editor::createView(const VSTGUI::UIAttributes&a,const VSTGUI::IUIDescription*d){if(const auto n=a.getAttributeValue(VSTGUI::IUIDescription::kCustomViewName)){if(*n=="TubeGlow")return new TubeGlowView({0,0,1536,520});if(*n=="Underlight")return new BitmapView({243,895,1293,965},"SMX3_Base_Underlight.png");if(*n=="Drive")return new DriveView({618,553,918,853},controller_);if(*n=="Mode")return new ModeView({990,660,1470,825},controller_);if(*n=="UiZoom")return new ZoomView({1370,70,1450,102},this);}return VSTGUI::VST3Editor::createView(a,d);}
 
 } // namespace SaturatorMixFX
