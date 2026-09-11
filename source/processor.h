@@ -74,6 +74,11 @@ private:
     };
     struct MixFxChannelState {
         std::array<ChannelState,kMaxChannels> dsp{};
+        double targetBypass=0.0;
+        double targetDrive=0.30;
+        double targetCharacter=0.0;
+        double targetMix=1.0;
+        double targetOutput=0.75;
         double smoothDrive=0.30;
         double smoothCharacter=0.0;
         double smoothMix=1.0;
