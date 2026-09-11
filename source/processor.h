@@ -32,6 +32,8 @@ private:
         double triodeCharge=0.0, pentodeCharge=0.0, ironFlux=0.0;
         std::array<BiquadState,kOversampleSections> osUp{};
         std::array<BiquadState,kOversampleSections> osDown{};
+        std::array<BiquadState,kOversampleSections> cleanUp{};
+        std::array<BiquadState,kOversampleSections> cleanDown{};
     };
 
     void readParameterChanges(Steinberg::Vst::IParameterChanges* changes);
