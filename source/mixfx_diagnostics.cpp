@@ -1,9 +1,48 @@
 #include "processor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <type_traits>
 
 namespace SaturatorMixFX {
+namespace {
+constexpr double kMixFxPi = 3.14159265358979323846;
+
+double mixFxClamp01(double v)
+{
+    return std::max(0.0, std::min(1.0, v));
+}
+
+double mixFxDbToGain(double d)
+{
+    return std::pow(10.0, d / 20.0);
+}
+
+double mixFxPeakProtect(double x)
+{
+    constexpr double threshold = .94;
+    constexpr double headroom = 1.0 - threshold;
+    const double a = std::abs(x);
+    if (a <= threshold)
+        return x;
+    const double y = threshold + headroom * std::tanh((a - threshold) / headroom);
+    return std::copysign(y, x);
+}
+
+double mixFxShapeDrive(double d)
+{
+    d = mixFxClamp01(d);
+    constexpr double pivot = .30;
+    if (d <= pivot)
+    {
+        const double u = d / pivot;
+        return pivot * std::pow(u, 1.35);
+    }
+    const double u = (d - pivot) / (1.0 - pivot);
+    return pivot + (1.0 - pivot) * std::pow(u, .78);
+}
+} // namespace
 
 const Steinberg::TUID PresonusProbe::IAudioMixProcessor::iid = {
     char(0x4C),char(0x05),char(0xC9),char(0x5A),char(0xE1),char(0xFC),char(0xF0),char(0x4F),
@@ -51,45 +90,129 @@ Steinberg::tresult Processor::processMixFxChannel(
     Steinberg::int32 index,
     Steinberg::Vst::ProcessData& data)
 {
+    using namespace Steinberg;
+    using namespace Steinberg::Vst;
+
     if (index < 0 || index >= kMaxMixFxChannels)
-        return Steinberg::kInvalidArgument;
+        return kInvalidArgument;
 
-    // Reuse the already validated SMX-3 DSP verbatim, but give every Studio One
-    // mixer channel its own complete nonlinear/filter state and its own parameter
-    // smoothing history. This prevents crosstalk through our internal state.
-    const auto savedDsp = channelState_;
-    const double savedDrive = smoothDrive_;
-    const double savedCharacter = smoothCharacter_;
-    const double savedMix = smoothMix_;
-    const double savedOutput = smoothOutput_;
+    if (data.numInputs <= 0 || data.numOutputs <= 0 || data.numSamples <= 0)
+        return kResultOk;
 
+    auto& in = data.inputs[0];
+    auto& out = data.outputs[0];
+    const int32 chans = std::min<int32>(std::min(in.numChannels, out.numChannels), kMaxChannels);
+    if (chans <= 0)
+        return kResultOk;
+
+    // IMPORTANT: Studio One can process independent mixer channels on different
+    // audio-worker threads. Never borrow/swap the ordinary VST3 channelState_ or
+    // its smoother members here. Each Mix-FX index owns its state permanently,
+    // making this callback re-entrant and independent across mixer channels.
     auto& mixState = mixFxStates_[static_cast<size_t>(index)];
-    channelState_ = mixState.dsp;
-    smoothDrive_ = mixState.smoothDrive;
-    smoothCharacter_ = mixState.smoothCharacter;
-    smoothMix_ = mixState.smoothMix;
-    smoothOutput_ = mixState.smoothOutput;
+    bool allBypassed = true;
 
-    // The regular process() path contains the finished Channel DSP. Temporarily
-    // enter that path for this one private Mix-FX channel callback only.
-    const bool wasMixFxEngaged = mixFxEngaged_;
-    mixFxEngaged_ = false;
-    const Steinberg::tresult result = process(data);
-    mixFxEngaged_ = wasMixFxEngaged;
+    auto run = [&](auto** srcs, auto** dsts)
+    {
+        using Sample = std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;
+        for (int32 n = 0; n < data.numSamples; ++n)
+        {
+            const double aSmooth = 1.0 - smoothCoeff_;
+            mixState.smoothDrive = smoothCoeff_ * mixState.smoothDrive + aSmooth * drive_;
+            mixState.smoothCharacter = smoothCoeff_ * mixState.smoothCharacter + aSmooth * character_;
+            mixState.smoothMix = smoothCoeff_ * mixState.smoothMix + aSmooth * mix_;
+            mixState.smoothOutput = smoothCoeff_ * mixState.smoothOutput + aSmooth * output_;
 
-    mixState.dsp = channelState_;
-    mixState.smoothDrive = smoothDrive_;
-    mixState.smoothCharacter = smoothCharacter_;
-    mixState.smoothMix = smoothMix_;
-    mixState.smoothOutput = smoothOutput_;
+            const bool bypass = onOff_ >= .5;
+            allBypassed = allBypassed && bypass;
 
-    channelState_ = savedDsp;
-    smoothDrive_ = savedDrive;
-    smoothCharacter_ = savedCharacter;
-    smoothMix_ = savedMix;
-    smoothOutput_ = savedOutput;
+            const double pos = mixFxClamp01(mixState.smoothCharacter) * 2.0;
+            const double wT = std::max(0.0, 1.0 - pos);
+            const double wI = std::max(0.0, pos - 1.0);
+            const double wP = 1.0 - wT - wI;
+            const double effectiveDrive = mixFxShapeDrive(mixState.smoothDrive);
+            const double driveDb = 24.0 * effectiveDrive;
+            const double inputGain = mixFxDbToGain(driveDb);
+            const double wet = mixState.smoothMix;
+            const double dry = 1.0 - wet;
+            const double outGain = mixFxDbToGain(-18.0 + 24.0 * mixState.smoothOutput);
+            const double trim = (-9.50 * wT - 19.00 * wP - 14.47 * wI) * effectiveDrive;
+            const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
+            const double referenceAmount = std::min(1.0, effectiveDrive / .30);
+            const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * referenceAmount;
+            const double comp = mixFxDbToGain(trim + baseComp + polishTrimDb);
+            const double protect = .18 * wT + .42 * wP + .30 * wI;
+            const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
 
-    return result;
+            for (int32 ch = 0; ch < chans; ++ch)
+            {
+                auto* src = srcs ? srcs[ch] : nullptr;
+                auto* dst = dsts ? dsts[ch] : nullptr;
+                if (!src || !dst)
+                    continue;
+
+                const double x = static_cast<double>(src[n]);
+                auto& s = mixState.dsp[static_cast<size_t>(ch)];
+
+                s.lowBand = lowCoeff_ * s.lowBand + (1.0 - lowCoeff_) * x;
+                s.highSmooth = highCoeff_ * s.highSmooth + (1.0 - highCoeff_) * x;
+                const double low = s.lowBand;
+                const double high = x - s.highSmooth;
+                const double mid = x - low - high;
+                const double triCol = .94 * low + 1.09 * mid + .84 * high;
+                const double penCol = .84 * low + 1.10 * mid + 1.07 * high;
+                const double ironCol = 1.13 * low + 1.025 * mid + .80 * high;
+                const double coloured = wT * triCol + wP * penCol + wI * ironCol;
+
+                const double ax = std::abs(x);
+                s.envFast = envFastCoeff_ * s.envFast + (1.0 - envFastCoeff_) * ax;
+                s.envSlow = envSlowCoeff_ * s.envSlow + (1.0 - envSlowCoeff_) * ax;
+                const double transient = std::max(0.0, s.envFast - s.envSlow);
+                const double normTransient = mixFxClamp01(transient / (.06 + s.envSlow));
+                const double dynamicGain = inputGain * (1.0 - protect * normTransient);
+
+                double processedOs = 0.0;
+                double cleanOs = 0.0;
+                for (int os = 0; os < kOversample; ++os)
+                {
+                    const double stuffed = (os == 0) ? (coloured * static_cast<double>(kOversample)) : 0.0;
+                    const double cleanStuffed = (os == 0) ? (x * static_cast<double>(kOversample)) : 0.0;
+                    const double up = runOversamplingFilter(stuffed, s.osUp);
+                    const double cleanUp = runOversamplingFilter(cleanStuffed, s.cleanUp);
+                    const double nlT = shapeTriode(up * dynamicGain, s);
+                    const double nlP = shapePentode(up * dynamicGain, s);
+                    const double nlI = shapeIron(up * dynamicGain, s);
+                    const double nl = wT * nlT + wP * nlP + wI * nlI;
+                    const double filtered = runOversamplingFilter(nl, s.osDown);
+                    const double cleanFiltered = runOversamplingFilter(cleanUp, s.cleanDown);
+                    if (os == kOversample - 1)
+                    {
+                        processedOs = filtered;
+                        cleanOs = cleanFiltered;
+                    }
+                }
+
+                double processed = processedOs * comp;
+                const double attackBlend = normTransient * attackAmount;
+                processed = processed * (1.0 - attackBlend) + cleanOs * attackBlend;
+                processed = mixFxPeakProtect(processed);
+                processed = dcBlock(processed, s);
+                const double mixed = (wet <= 1.0e-6) ? x : (dry * cleanOs + wet * processed);
+                const double active = x + referenceAmount * (mixed - x);
+                dst[n] = static_cast<Sample>(bypass ? x : (active * outGain));
+            }
+        }
+    };
+
+    if (data.symbolicSampleSize == kSample64)
+        run(in.channelBuffers64, out.channelBuffers64);
+    else if (data.symbolicSampleSize == kSample32)
+        run(in.channelBuffers32, out.channelBuffers32);
+    else
+        return kResultFalse;
+
+    out.silenceFlags = allBypassed ? in.silenceFlags : 0;
+    return kResultOk;
 }
 
 Steinberg::tresult PLUGIN_API Processor::mixMethodA(
@@ -107,9 +230,9 @@ Steinberg::tresult PLUGIN_API Processor::mixMethodA(
 
 Steinberg::tresult PLUGIN_API Processor::mixMethodB(Steinberg::Vst::ProcessData* data)
 {
-    // Global Mix-FX callback: keep the shared parameter targets synchronized,
-    // but do not saturate the summed signal here. The actual sound processing
-    // happens once, on each contributing mixer channel, in channelMethod().
+    // The global callback carries the shared automation/parameter stream. It is
+    // deliberately not used for saturation; otherwise the final sum would be
+    // processed in addition to the individual mixer channels.
     if (data)
         readParameterChanges(data->inputParameterChanges);
     return Steinberg::kResultOk;
