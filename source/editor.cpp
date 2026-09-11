@@ -50,10 +50,7 @@ public:
                         if(b.flashTicks==0){ b.stage=0; b.wait=8+static_cast<int>(random01()*20.); }
                     }
                     changed=true;
-                } else if(--b.wait<=0){
-                    makeBolt(i);
-                    changed=true;
-                }
+                } else if(--b.wait<=0){ makeBolt(i); changed=true; }
             }
             if(changed) invalid();
         },33);
@@ -66,10 +63,8 @@ public:
         const double srcW=tube_->getWidth();
         const double srcH=tube_->getHeight();
         if(srcW<=0.||srcH<=0.){setDirty(false);return;}
-
         for(size_t i=0;i<3;++i){
-            const double left=cx[i]-tubeW/2.;
-            const double top=cy-tubeH/2.;
+            const double left=cx[i]-tubeW/2., top=cy-tubeH/2.;
             VSTGUI::CGraphicsTransform transform;
             transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
             VSTGUI::CDrawContext::Transform guard(*ctx,transform);
@@ -80,37 +75,36 @@ public:
         for(const auto& b:bolts_){
             if(b.stage<=0) continue;
             const bool fullFlash=b.stage>kLeaderStages;
-            const size_t visible=fullFlash ? b.points.size() : std::min<size_t>(b.points.size(),static_cast<size_t>(b.stage+1));
+            const size_t visible=fullFlash?b.points.size():std::min<size_t>(b.points.size(),static_cast<size_t>(b.stage+1));
             if(visible<2) continue;
 
-            const uint8_t mainAlpha=fullFlash?255:220;
-            ctx->setLineWidth(fullFlash?8.0:6.0);
-            ctx->setFrameColor({0,105,255,static_cast<uint8_t>(fullFlash?95:58)});
+            // Broad transparent halo: makes the discharge illuminate the glass instead of reading as a drawn line.
+            ctx->setLineWidth(fullFlash?18.0:13.0);
+            ctx->setFrameColor({0,92,255,static_cast<uint8_t>(fullFlash?42:26)});
             for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
-            ctx->setLineWidth(fullFlash?3.0:2.3);
-            ctx->setFrameColor({55,175,255,mainAlpha});
+            ctx->setLineWidth(fullFlash?10.0:7.5);
+            ctx->setFrameColor({0,130,255,static_cast<uint8_t>(fullFlash?80:52)});
             for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
-            ctx->setLineWidth(1.0);
-            ctx->setFrameColor({240,252,255,255});
+            ctx->setLineWidth(fullFlash?4.0:3.0);
+            ctx->setFrameColor({75,195,255,static_cast<uint8_t>(fullFlash?245:215)});
+            for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
+            ctx->setLineWidth(fullFlash?1.5:1.1);
+            ctx->setFrameColor({248,254,255,255});
             for(size_t p=1;p<visible;++p) ctx->drawLine(b.points[p-1],b.points[p]);
 
-            for(size_t j=0;j<b.branches.size();++j){
-                const auto& br=b.branches[j];
+            for(const auto& br:b.branches){
                 if(br.root>=visible) continue;
-                const size_t branchVisible=fullFlash ? br.points.size() : std::min<size_t>(br.points.size(),1u+(visible-br.root));
-                if(branchVisible<2) continue;
-                ctx->setLineWidth(fullFlash?4.0:3.0);
-                ctx->setFrameColor({0,110,255,static_cast<uint8_t>(fullFlash?70:45)});
-                ctx->drawLine(b.points[br.root],br.points[0]);
-                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
-                ctx->setLineWidth(1.4);
-                ctx->setFrameColor({105,205,255,static_cast<uint8_t>(fullFlash?220:175)});
-                ctx->drawLine(b.points[br.root],br.points[0]);
-                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
-                ctx->setLineWidth(.7);
-                ctx->setFrameColor({225,248,255,static_cast<uint8_t>(fullFlash?245:205)});
-                ctx->drawLine(b.points[br.root],br.points[0]);
-                for(size_t p=1;p<branchVisible;++p) ctx->drawLine(br.points[p-1],br.points[p]);
+                const size_t bv=fullFlash?br.points.size():std::min<size_t>(br.points.size(),1u+(visible-br.root));
+                if(bv<2) continue;
+                auto drawBranch=[&](double width,VSTGUI::CColor color){
+                    ctx->setLineWidth(width); ctx->setFrameColor(color);
+                    ctx->drawLine(b.points[br.root],br.points[0]);
+                    for(size_t p=1;p<bv;++p) ctx->drawLine(br.points[p-1],br.points[p]);
+                };
+                drawBranch(fullFlash?10.0:7.0,{0,95,255,static_cast<uint8_t>(fullFlash?32:20)});
+                drawBranch(fullFlash?5.5:4.0,{0,140,255,static_cast<uint8_t>(fullFlash?68:42)});
+                drawBranch(fullFlash?2.2:1.7,{105,210,255,static_cast<uint8_t>(fullFlash?220:180)});
+                drawBranch(.75,{235,251,255,static_cast<uint8_t>(fullFlash?250:215)});
             }
         }
         setDirty(false);
@@ -118,55 +112,33 @@ public:
 
 private:
     static constexpr int kLeaderStages=6;
-    struct Branch {
-        size_t root=0;
-        std::array<VSTGUI::CPoint,3> points{};
-    };
-    struct Bolt {
-        std::array<VSTGUI::CPoint,7> points{};
-        std::array<Branch,3> branches{};
-        int stage=0;
-        int flashTicks=0;
-        int wait=0;
-    };
-
+    struct Branch { size_t root=0; std::array<VSTGUI::CPoint,3> points{}; };
+    struct Bolt { std::array<VSTGUI::CPoint,7> points{}; std::array<Branch,3> branches{}; int stage=0; int flashTicks=0; int wait=0; };
     double random01(){ seed_=1664525u*seed_+1013904223u; return static_cast<double>((seed_>>8)&0x00FFFFFFu)/16777215.0; }
     double randomSigned(double amount){ return (random01()*2.0-1.0)*amount; }
-
     void makeBolt(size_t index){
         static constexpr std::array<double,3> cx{{421.,768.,1115.}};
         auto& b=bolts_[index];
-        const double startY=238.+randomSigned(5.);
-        const double endY=368.+randomSigned(5.);
+        const double startY=238.+randomSigned(5.), endY=368.+randomSigned(5.);
         for(size_t p=0;p<b.points.size();++p){
             const double t=static_cast<double>(p)/static_cast<double>(b.points.size()-1);
             const double y=startY+(endY-startY)*t;
             const double spread=(p==0||p+1==b.points.size())?4.:24.;
             b.points[p]=VSTGUI::CPoint(cx[index]+randomSigned(spread),y+randomSigned(4.));
         }
-
         const std::array<size_t,3> roots{{2,3,4}};
         for(size_t j=0;j<b.branches.size();++j){
-            auto& br=b.branches[j];
-            br.root=roots[j];
-            const double dir=(random01()<.5?-1.0:1.0);
-            const double reach=22.+random01()*24.;
-            const double drop=14.+random01()*20.;
+            auto& br=b.branches[j]; br.root=roots[j];
+            const double dir=random01()<.5?-1.0:1.0, reach=22.+random01()*24., drop=14.+random01()*20.;
             const auto root=b.points[br.root];
             br.points[0]=VSTGUI::CPoint(root.x+dir*(8.+random01()*7.),root.y+6.+random01()*6.);
             br.points[1]=VSTGUI::CPoint(root.x+dir*(14.+reach*.45)+randomSigned(4.),root.y+drop*.55+randomSigned(3.));
             br.points[2]=VSTGUI::CPoint(root.x+dir*reach+randomSigned(3.),root.y+drop+randomSigned(3.));
             const double minX=cx[index]-58.,maxX=cx[index]+58.;
-            for(auto& p:br.points){
-                p.x=std::clamp(p.x,minX,maxX);
-                p.y=std::clamp(p.y,246.,374.);
-            }
+            for(auto& p:br.points){ p.x=std::clamp(p.x,minX,maxX); p.y=std::clamp(p.y,246.,374.); }
         }
-        b.stage=1;
-        b.flashTicks=0;
-        b.wait=0;
+        b.stage=1; b.flashTicks=0; b.wait=0;
     }
-
     VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
     std::array<Bolt,3> bolts_{};
@@ -188,61 +160,19 @@ public:
     ModeView(const VSTGUI::CRect&r,EditController*c):CView(r),controller_(c){setMouseEnabled(true);timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){invalid();},50);}
     void draw(VSTGUI::CDrawContext*ctx) override {
         if(!ctx||!controller_){setDirty(false);return;}
-        const bool bypass=isBypassed(controller_);
-        const int active=characterIndex(controller_);
-        ctx->setDrawMode(VSTGUI::kAntiAliasing);
+        const bool bypass=isBypassed(controller_); const int active=characterIndex(controller_); ctx->setDrawMode(VSTGUI::kAntiAliasing);
         for(int i=0;i<3;++i){
-            const bool on=!bypass&&active==i;
-            const double x=kModeCx[i], y=kModeCy;
-
-            VSTGUI::CRect shadow(x-53.,y-50.,x+55.,y+58.);
-            ctx->setFillColor({0,0,0,78});
-            ctx->setFrameColor({0,0,0,0});
-            ctx->drawEllipse(shadow,VSTGUI::kDrawFilled);
-
-            if(on){
-                VSTGUI::CRect glow(x-57.,y-57.,x+57.,y+57.);
-                ctx->setFillColor({0,118,255,34});
-                ctx->setFrameColor({0,151,255,255});
-                ctx->setLineWidth(4.);
-                ctx->drawEllipse(glow,VSTGUI::kDrawFilledAndStroked);
-            }
-
-            VSTGUI::CRect metal(x-53.,y-53.,x+53.,y+53.);
-            ctx->setFillColor({72,74,78,255});
-            ctx->setFrameColor({24,25,28,255});
-            ctx->setLineWidth(2.);
-            ctx->drawEllipse(metal,VSTGUI::kDrawFilledAndStroked);
-
-            VSTGUI::CRect face(x-45.,y-45.,x+45.,y+45.);
-            ctx->setFillColor(on?VSTGUI::CColor{38,40,44,255}:VSTGUI::CColor{28,29,32,255});
-            ctx->setFrameColor({12,13,15,255});
-            ctx->setLineWidth(2.);
-            ctx->drawEllipse(face,VSTGUI::kDrawFilledAndStroked);
+            const bool on=!bypass&&active==i; const double x=kModeCx[i],y=kModeCy;
+            VSTGUI::CRect shadow(x-53.,y-50.,x+55.,y+58.); ctx->setFillColor({0,0,0,78}); ctx->setFrameColor({0,0,0,0}); ctx->drawEllipse(shadow,VSTGUI::kDrawFilled);
+            if(on){ VSTGUI::CRect glow(x-57.,y-57.,x+57.,y+57.); ctx->setFillColor({0,118,255,34}); ctx->setFrameColor({0,151,255,255}); ctx->setLineWidth(4.); ctx->drawEllipse(glow,VSTGUI::kDrawFilledAndStroked); }
+            VSTGUI::CRect metal(x-53.,y-53.,x+53.,y+53.); ctx->setFillColor({72,74,78,255}); ctx->setFrameColor({24,25,28,255}); ctx->setLineWidth(2.); ctx->drawEllipse(metal,VSTGUI::kDrawFilledAndStroked);
+            VSTGUI::CRect face(x-45.,y-45.,x+45.,y+45.); ctx->setFillColor(on?VSTGUI::CColor{38,40,44,255}:VSTGUI::CColor{28,29,32,255}); ctx->setFrameColor({12,13,15,255}); ctx->setLineWidth(2.); ctx->drawEllipse(face,VSTGUI::kDrawFilledAndStroked);
         }
         setDirty(false);
     }
-    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override {
-        if(!controller_)return VSTGUI::kMouseEventNotHandled;
-        for(int i=0;i<3;++i){
-            const double dx=p.x-kModeCx[i],dy=p.y-kModeCy;
-            if(dx*dx+dy*dy<=kModeHitRadius*kModeHitRadius){
-                const bool bypass=isBypassed(controller_);
-                const int active=characterIndex(controller_);
-                if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);
-                else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}
-                invalid();
-                return VSTGUI::kMouseEventHandled;
-            }
-        }
-        return VSTGUI::kMouseEventHandled;
-    }
+    VSTGUI::CMouseEventResult onMouseDown(VSTGUI::CPoint&p,const VSTGUI::CButtonState&) override { if(!controller_)return VSTGUI::kMouseEventNotHandled; for(int i=0;i<3;++i){const double dx=p.x-kModeCx[i],dy=p.y-kModeCy;if(dx*dx+dy*dy<=kModeHitRadius*kModeHitRadius){const bool bypass=isBypassed(controller_);const int active=characterIndex(controller_);if(!bypass&&active==i)setParameter(controller_,kParamOnOff,1.);else{setParameter(controller_,kParamCharacter,i/2.);setParameter(controller_,kParamOnOff,0.);}invalid();return VSTGUI::kMouseEventHandled;}}return VSTGUI::kMouseEventHandled; }
 private:
-    static constexpr std::array<double,3> kModeCx{{1065.,1231.,1398.}};
-    static constexpr double kModeCy=742.;
-    static constexpr double kModeHitRadius=56.;
-    EditController*controller_=nullptr;
-    VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer>timer_;
+    static constexpr std::array<double,3> kModeCx{{1065.,1231.,1398.}}; static constexpr double kModeCy=742.; static constexpr double kModeHitRadius=56.; EditController*controller_=nullptr; VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer>timer_;
 };
 
 class ZoomView final : public VSTGUI::CView {
