@@ -14,72 +14,69 @@ constexpr double kPi=3.14159265358979323846;
 double clamp01(double v){return std::max(0.0,std::min(1.0,v));}
 double dbToGain(double d){return std::pow(10.0,d/20.0);}
 double peakProtect(double x){constexpr double threshold=.94;constexpr double headroom=1.0-threshold;double a=std::abs(x);if(a<=threshold)return x;double y=threshold+headroom*std::tanh((a-threshold)/headroom);return std::copysign(y,x);}
-// Keep the factory 30% point exactly where it was calibrated, while making the lower half
-// more console-like and reserving the upper half for progressively stronger saturation.
-double shapeDrive(double d){
-    d=clamp01(d);
-    constexpr double pivot=.30;
-    if(d<=pivot){
-        const double u=d/pivot;
-        return pivot*std::pow(u,1.35);
-    }
-    const double u=(d-pivot)/(1.0-pivot);
-    return pivot+(1.0-pivot)*std::pow(u,.78);
-}
+double shapeDrive(double d){d=clamp01(d);constexpr double pivot=.30;if(d<=pivot){const double u=d/pivot;return pivot*std::pow(u,1.35);}const double u=(d-pivot)/(1.0-pivot);return pivot+(1.0-pivot)*std::pow(u,.78);}
 }
 
 Processor::Processor(){setControllerClass(kControllerUID);}
-
 tresult PLUGIN_API Processor::initialize(FUnknown* c){auto r=AudioEffect::initialize(c);if(r!=kResultOk)return r;addAudioInput(STR16("Stereo In"),SpeakerArr::kStereo,kMain,BusInfo::kDefaultActive);addAudioOutput(STR16("Stereo Out"),SpeakerArr::kStereo,kMain,BusInfo::kDefaultActive);return kResultOk;}
 tresult PLUGIN_API Processor::setBusArrangements(SpeakerArrangement* i,int32 ni,SpeakerArrangement* o,int32 no){if(ni==1&&no==1&&i[0]==SpeakerArr::kStereo&&o[0]==SpeakerArr::kStereo)return AudioEffect::setBusArrangements(i,ni,o,no);return kResultFalse;}
 tresult PLUGIN_API Processor::canProcessSampleSize(int32 s){return(s==kSample32||s==kSample64)?kResultTrue:kResultFalse;}
 
-void Processor::designOversamplingFilters(){
-    const double internalRate=sampleRate_*kOversample;
-    const double cutoff=0.485*sampleRate_;
-    const double w0=2.0*kPi*cutoff/internalRate;
-    const double cw=std::cos(w0),sw=std::sin(w0);
-    constexpr int order=2*kOversampleSections;
-    for(int section=0;section<kOversampleSections;++section){
-        const double angle=(2.0*(section+1)-1.0)*kPi/(2.0*order);
-        const double q=1.0/(2.0*std::cos(angle));
-        const double alpha=sw/(2.0*q),a0=1.0+alpha;
-        auto& c=osCoeffs_[(size_t)section];
-        c.b0=((1.0-cw)*.5)/a0;c.b1=(1.0-cw)/a0;c.b2=c.b0;c.a1=(-2.0*cw)/a0;c.a2=(1.0-alpha)/a0;
-    }
-}
+void Processor::designOversamplingFilters(){const double internalRate=sampleRate_*kOversample;const double cutoff=0.485*sampleRate_;const double w0=2.0*kPi*cutoff/internalRate;const double cw=std::cos(w0),sw=std::sin(w0);constexpr int order=2*kOversampleSections;for(int section=0;section<kOversampleSections;++section){const double angle=(2.0*(section+1)-1.0)*kPi/(2.0*order);const double q=1.0/(2.0*std::cos(angle));const double alpha=sw/(2.0*q),a0=1.0+alpha;auto& c=osCoeffs_[(size_t)section];c.b0=((1.0-cw)*.5)/a0;c.b1=(1.0-cw)/a0;c.b2=c.b0;c.a1=(-2.0*cw)/a0;c.a2=(1.0-alpha)/a0;}}
+double Processor::runOversamplingFilter(double x,std::array<BiquadState,kOversampleSections>& state)const{double y=x;for(int i=0;i<kOversampleSections;++i){const auto& c=osCoeffs_[(size_t)i];auto& s=state[(size_t)i];const double out=c.b0*y+s.z1;s.z1=c.b1*y-c.a1*out+s.z2;s.z2=c.b2*y-c.a2*out;y=out;}return y;}
 
-double Processor::runOversamplingFilter(double x,std::array<BiquadState,kOversampleSections>& state)const{
-    double y=x;
-    for(int i=0;i<kOversampleSections;++i){const auto& c=osCoeffs_[(size_t)i];auto& s=state[(size_t)i];const double out=c.b0*y+s.z1;s.z1=c.b1*y-c.a1*out+s.z2;s.z2=c.b2*y-c.a2*out;y=out;}
-    return y;
-}
-
-tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& s){auto r=AudioEffect::setupProcessing(s);if(r!=kResultOk)return r;sampleRate_=s.sampleRate>1.0?s.sampleRate:44100.0;smoothCoeff_=std::exp(-1.0/(0.018*sampleRate_));const double ir=sampleRate_*kOversample;ironMemoryCoeff_=std::exp(-2.0*kPi*95.0/ir);dcCoeff_=std::exp(-2.0*kPi*18.0/sampleRate_);lowCoeff_=std::exp(-2.0*kPi*145.0/sampleRate_);highCoeff_=std::exp(-2.0*kPi*6200.0/sampleRate_);envFastCoeff_=std::exp(-1.0/(0.0015*sampleRate_));envSlowCoeff_=std::exp(-1.0/(0.035*sampleRate_));designOversamplingFilters();resetDsp();return kResultOk;}
+tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& s){auto r=AudioEffect::setupProcessing(s);if(r!=kResultOk)return r;sampleRate_=s.sampleRate>1.0?s.sampleRate:44100.0;smoothCoeff_=std::exp(-1.0/(0.018*sampleRate_));const double ir=sampleRate_*kOversample;ironMemoryCoeff_=std::exp(-2.0*kPi*95.0/ir);triodeChargeCoeff_=std::exp(-1.0/(0.030*ir));pentodeChargeCoeff_=std::exp(-1.0/(0.055*ir));ironFluxCoeff_=std::exp(-1.0/(0.085*ir));dcCoeff_=std::exp(-2.0*kPi*18.0/sampleRate_);lowCoeff_=std::exp(-2.0*kPi*145.0/sampleRate_);highCoeff_=std::exp(-2.0*kPi*6200.0/sampleRate_);envFastCoeff_=std::exp(-1.0/(0.0015*sampleRate_));envSlowCoeff_=std::exp(-1.0/(0.035*sampleRate_));designOversamplingFilters();resetDsp();return kResultOk;}
 tresult PLUGIN_API Processor::setActive(TBool s){if(s)resetDsp();return AudioEffect::setActive(s);}
 void Processor::resetDsp(){for(auto& s:channelState_)s={};smoothDrive_=drive_;smoothMix_=mix_;smoothOutput_=output_;}
 void Processor::updateSmoothers(){double a=1.0-smoothCoeff_;smoothDrive_=smoothCoeff_*smoothDrive_+a*drive_;smoothMix_=smoothCoeff_*smoothMix_+a*mix_;smoothOutput_=smoothCoeff_*smoothOutput_+a*output_;}
 void Processor::readParameterChanges(IParameterChanges* c){if(!c)return;for(int32 i=0;i<c->getParameterCount();++i){auto*q=c->getParameterData(i);if(!q||q->getPointCount()<=0)continue;int32 off=0;ParamValue v=0;if(q->getPoint(q->getPointCount()-1,off,v)!=kResultTrue)continue;switch(q->getParameterId()){case kParamOnOff:onOff_=clamp01(v);break;case kParamDrive:drive_=clamp01(v);break;case kParamCharacter:character_=clamp01(v);break;case kParamMix:mix_=clamp01(v);break;case kParamOutput:output_=clamp01(v);break;default:break;}}}
 
-double Processor::shapeTriode(double x)const{constexpr double b=.22;double p=std::tanh(1.18*x+b)-std::tanh(b),n=std::tanh(.92*x-.55*b)+std::tanh(.55*b);double y=.64*p+.36*n;y+=.075*x*x/(1.0+1.8*std::abs(x));return y;}
-double Processor::shapePentode(double x)const{double a=.46*std::tanh(1.32*x);double b=.18*std::tanh(2.15*x);double c=.16*std::atan(1.75*x)*(2.0/kPi);double d=.20*x/(1.0+.18*std::abs(x));return a+b+c+d;}
-double Processor::shapeIron(double x,ChannelState&s){s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;double m=s.ironMemory,f=x+.24*m;double core=.58*std::tanh(1.10*f);double soft=.30*f/(1.0+.30*std::abs(f));double linear=.12*f;double hysteretic=.045*m*std::abs(m);return core+soft+linear+hysteretic;}
-double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x);if(m==kPentode)return shapePentode(x);return shapeIron(x,s);}
+double Processor::shapeTriode(double x,ChannelState&s){
+    const double a=std::abs(x);
+    s.triodeCharge=triodeChargeCoeff_*s.triodeCharge+(1.0-triodeChargeCoeff_)*a;
+    const double charge=s.triodeCharge/(0.35+s.triodeCharge);
+    const double sag=1.0-0.055*charge;
+    const double bias=.22+.030*charge;
+    const double p=std::tanh(1.18*(x*sag)+bias)-std::tanh(bias);
+    const double n=std::tanh(.92*(x*sag)-.55*bias)+std::tanh(.55*bias);
+    double y=.64*p+.36*n;
+    y+=.075*(x*x)/(1.0+1.8*a);
+    return y;
+}
+
+double Processor::shapePentode(double x,ChannelState&s){
+    const double a=std::abs(x);
+    s.pentodeCharge=pentodeChargeCoeff_*s.pentodeCharge+(1.0-pentodeChargeCoeff_)*a;
+    const double charge=s.pentodeCharge/(0.30+s.pentodeCharge);
+    const double screenSag=1.0-0.075*charge;
+    const double xs=x*screenSag;
+    const double hard=.46*std::tanh((1.32+.10*charge)*xs);
+    const double edge=.18*std::tanh((2.15+.20*charge)*xs);
+    const double open=.16*std::atan(1.75*xs)*(2.0/kPi);
+    const double quasiLinear=.20*xs/(1.0+.18*std::abs(xs));
+    return hard+edge+open+quasiLinear;
+}
+
+double Processor::shapeIron(double x,ChannelState&s){
+    s.ironMemory=ironMemoryCoeff_*s.ironMemory+(1.0-ironMemoryCoeff_)*x;
+    s.ironFlux=ironFluxCoeff_*s.ironFlux+(1.0-ironFluxCoeff_)*std::abs(x);
+    const double fluxAmount=s.ironFlux/(0.28+s.ironFlux);
+    const double m=s.ironMemory;
+    const double f=x+(.24+.035*fluxAmount)*m;
+    const double core=(.58-.025*fluxAmount)*std::tanh((1.10+.08*fluxAmount)*f);
+    const double soft=.30*f/(1.0+(.30+.05*fluxAmount)*std::abs(f));
+    const double linear=(.12+.015*(1.0-fluxAmount))*f;
+    const double hysteretic=(.045+.010*fluxAmount)*m*std::abs(m);
+    return core+soft+linear+hysteretic;
+}
+
+double Processor::processNonlinear(double x,int m,ChannelState&s){if(m==kTriode)return shapeTriode(x,s);if(m==kPentode)return shapePentode(x,s);return shapeIron(x,s);}
 double Processor::dcBlock(double x,ChannelState&s){double y=x-s.dcX1+dcCoeff_*s.dcY1;s.dcX1=x;s.dcY1=y;return y;}
 
 tresult PLUGIN_API Processor::process(ProcessData& d){readParameterChanges(d.inputParameterChanges);if(d.numInputs==0||d.numOutputs==0||d.numSamples<=0)return kResultOk;auto&in=d.inputs[0];auto&out=d.outputs[0];int32 chans=std::min<int32>(std::min(in.numChannels,out.numChannels),kMaxChannels);bool bypass=onOff_>=.5;int mode=std::clamp((int)std::lround(character_*2.0),0,2);
- auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();
-   const double effectiveDrive=shapeDrive(smoothDrive_);
-   const double driveDb=24.0*effectiveDrive,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);
-   const double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*effectiveDrive;
-   const double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;
-   // The fixed reference trim is faded in below the 30% calibration point so Drive=0 is true unity.
-   const double referenceAmount=std::min(1.0,effectiveDrive/.30);
-   const double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?2.67:.34))*referenceAmount;
-   const double comp=dbToGain(trim+baseComp+polishTrimDb);
+ auto run=[&](auto**srcs,auto**dsts){using Sample=std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;for(int32 n=0;n<d.numSamples;++n){updateSmoothers();const double effectiveDrive=shapeDrive(smoothDrive_);const double driveDb=24.0*effectiveDrive,inputGain=dbToGain(driveDb),wet=smoothMix_,dry=1.0-wet,outGain=dbToGain(-18.0+24.0*smoothOutput_);const double trim=(mode==kTriode?-9.50:(mode==kPentode?-19.00:-14.47))*effectiveDrive;const double baseComp=(mode==kTriode?-.46:(mode==kPentode?-.52:-.40))*driveDb;const double referenceAmount=std::min(1.0,effectiveDrive/.30);const double polishTrimDb=(mode==kTriode?.73:(mode==kPentode?2.67:.34))*referenceAmount;const double comp=dbToGain(trim+baseComp+polishTrimDb);
    for(int32 ch=0;ch<chans;++ch){auto*src=srcs[ch];auto*dst=dsts[ch];if(!src||!dst)continue;double x=(double)src[n];auto&s=channelState_[(size_t)ch];if(bypass){dst[n]=(Sample)x;continue;}
-    s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high,coloured=x;
-    if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.86*low+1.09*mid+1.04*high;else coloured=1.10*low+1.02*mid+.84*high;
+    s.lowBand=lowCoeff_*s.lowBand+(1.0-lowCoeff_)*x;s.highSmooth=highCoeff_*s.highSmooth+(1.0-highCoeff_)*x;double low=s.lowBand,high=x-s.highSmooth,mid=x-low-high,coloured=x;if(mode==kTriode)coloured=.92*low+1.08*mid+.88*high;else if(mode==kPentode)coloured=.86*low+1.09*mid+1.04*high;else coloured=1.10*low+1.02*mid+.84*high;
     double a=std::abs(x);s.envFast=envFastCoeff_*s.envFast+(1.0-envFastCoeff_)*a;s.envSlow=envSlowCoeff_*s.envSlow+(1.0-envSlowCoeff_)*a;double transient=std::max(0.0,s.envFast-s.envSlow),normTransient=clamp01(transient/(.06+s.envSlow));double protect=(mode==kPentode?.42:(mode==kIron?.30:.18));double dynamicGain=inputGain*(1.0-protect*normTransient);
     double processedOs=0.0;for(int os=0;os<kOversample;++os){const double stuffed=(os==0)?(coloured*static_cast<double>(kOversample)):0.0;const double up=runOversamplingFilter(stuffed,s.osUp);const double nl=processNonlinear(up*dynamicGain,mode,s);const double filtered=runOversamplingFilter(nl,s.osDown);if(os==kOversample-1)processedOs=filtered;}
     double processed=processedOs*comp;double attackBlend=normTransient*(mode==kPentode?.22:(mode==kIron?.15:.08));processed=processed*(1.0-attackBlend)+x*attackBlend;processed=peakProtect(processed);processed=dcBlock(processed,s);dst[n]=(Sample)((dry*x+wet*processed)*outGain);
