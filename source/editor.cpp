@@ -35,9 +35,10 @@ class TubeGlowView final : public VSTGUI::CView {
 public:
     explicit TubeGlowView(const VSTGUI::CRect&r):CView(r) {
         tube_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_MITTEL.png"));
+        glow_=VSTGUI::makeOwned<VSTGUI::CBitmap>(VSTGUI::CResourceDescription("SMX3_Internal_Glow.png"));
         setMouseEnabled(false);
         timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>([this](VSTGUI::CVSTGUITimer*){
-            phase_ += 0.065;
+            phase_ += 0.05;
             if(phase_ > 2.*kPi) phase_ -= 2.*kPi;
             invalid();
         },33);
@@ -50,8 +51,8 @@ public:
         const double srcH=tube_->getHeight();
         if(srcW<=0.||srcH<=0.){setDirty(false);return;}
 
-        // The tube body never changes. Only a blue light field inside the glass pulses.
         const double pulse=0.5+0.5*std::sin(phase_);
+        const float glowAlpha=static_cast<float>(0.18+0.82*pulse);
 
         for(size_t i=0;i<3;++i){
             const double left=cx[i]-tubeW/2.;
@@ -60,31 +61,19 @@ public:
             transform.scale(tubeW/srcW,tubeH/srcH).translate(left,top);
             VSTGUI::CDrawContext::Transform guard(*ctx,transform);
 
-            // Fixed master tube.
+            // One completely fixed master cell. Geometry never changes.
             tube_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),1.f);
 
-            // Strong but contained electric-blue reactor glow. Multiple translucent
-            // ellipses create bloom while remaining well inside the tube body.
-            ctx->setDrawMode(VSTGUI::kAntiAliasing);
-            const double a=0.20+0.80*pulse;
-            ctx->setFillColor({0,80,255,static_cast<uint8_t>(35.+65.*a)});
-            ctx->drawEllipse(VSTGUI::CRect(srcW*.22,srcH*.13,srcW*.78,srcH*.72),VSTGUI::kDrawFilled);
-            ctx->setFillColor({0,125,255,static_cast<uint8_t>(55.+100.*a)});
-            ctx->drawEllipse(VSTGUI::CRect(srcW*.29,srcH*.18,srcW*.71,srcH*.68),VSTGUI::kDrawFilled);
-            ctx->setFillColor({70,185,255,static_cast<uint8_t>(70.+150.*a)});
-            ctx->drawEllipse(VSTGUI::CRect(srcW*.37,srcH*.22,srcW*.63,srcH*.64),VSTGUI::kDrawFilled);
-            ctx->setFillColor({190,235,255,static_cast<uint8_t>(55.+185.*a)});
-            ctx->drawEllipse(VSTGUI::CRect(srcW*.445,srcH*.25,srcW*.555,srcH*.61),VSTGUI::kDrawFilled);
-
-            // Redraw the central hardware over the light so the glow reads as
-            // illumination behind/inside the reactor instead of a flat overlay.
-            const VSTGUI::CRect core(srcW*.34,srcH*.19,srcW*.66,srcH*.67);
-            tube_->draw(ctx,core,VSTGUI::CPoint(core.left,core.top),static_cast<float>(0.38+0.22*(1.-pulse)));
+            // The transparent mask has exactly the same source dimensions as the
+            // master cell. Only its opacity changes, so the light cannot wander.
+            if(glow_ && glow_->getWidth()==srcW && glow_->getHeight()==srcH)
+                glow_->draw(ctx,VSTGUI::CRect(0.,0.,srcW,srcH),VSTGUI::CPoint(0.,0.),glowAlpha);
         }
         setDirty(false);
     }
 private:
     VSTGUI::SharedPointer<VSTGUI::CBitmap> tube_;
+    VSTGUI::SharedPointer<VSTGUI::CBitmap> glow_;
     VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_;
     double phase_=0.;
 };
