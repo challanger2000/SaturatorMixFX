@@ -5,12 +5,47 @@
 
 namespace SaturatorMixFX {
 
-class Processor final : public Steinberg::Vst::AudioEffect {
+namespace PresonusProbe {
+struct IAudioMixProcessor : Steinberg::FUnknown
+{
+    static const Steinberg::TUID iid;
+    virtual Steinberg::tresult PLUGIN_API mixMethodA(
+        Steinberg::Vst::SpeakerArrangement* arrangements,
+        Steinberg::int32 count) = 0;
+    virtual Steinberg::tresult PLUGIN_API mixMethodB(
+        Steinberg::Vst::ProcessData* data) = 0;
+};
+
+struct IAudioMixChannelProcessor : Steinberg::FUnknown
+{
+    static const Steinberg::TUID iid;
+    virtual Steinberg::tresult PLUGIN_API channelMethod(
+        Steinberg::int32 index,
+        Steinberg::Vst::ProcessData* data) = 0;
+};
+} // namespace PresonusProbe
+
+class Processor final : public Steinberg::Vst::AudioEffect,
+                        public PresonusProbe::IAudioMixProcessor,
+                        public PresonusProbe::IAudioMixChannelProcessor {
 public:
     Processor();
     ~Processor() SMTG_OVERRIDE = default;
     static Steinberg::FUnknown* createInstance(void*) { return static_cast<Steinberg::Vst::IAudioProcessor*>(new Processor()); }
+
+    Steinberg::uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return Steinberg::Vst::AudioEffect::addRef(); }
+    Steinberg::uint32 PLUGIN_API release() SMTG_OVERRIDE { return Steinberg::Vst::AudioEffect::release(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID iid, void** obj) SMTG_OVERRIDE;
+
+    Steinberg::tresult PLUGIN_API mixMethodA(
+        Steinberg::Vst::SpeakerArrangement* arrangements,
+        Steinberg::int32 count) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API mixMethodB(
+        Steinberg::Vst::ProcessData* data) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API channelMethod(
+        Steinberg::int32 index,
+        Steinberg::Vst::ProcessData* data) SMTG_OVERRIDE;
+
     Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown* context) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32 symbolicSampleSize) SMTG_OVERRIDE;
