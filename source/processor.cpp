@@ -167,7 +167,25 @@ tresult PLUGIN_API Processor::setActive(TBool s)
         if (mixFxEngaged_)
             resetMixFxStates();
     }
+    else
+    {
+        processing_ = false;
+    }
     return AudioEffect::setActive(s);
+}
+
+tresult PLUGIN_API Processor::setProcessing(TBool state)
+{
+    const bool shouldProcess = state != 0;
+    if (shouldProcess && !processing_)
+    {
+        resetDsp();
+        if (mixFxEngaged_)
+            resetMixFxStates();
+    }
+
+    processing_ = shouldProcess;
+    return AudioEffect::setProcessing(state);
 }
 
 void Processor::resetDsp()
@@ -509,10 +527,12 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
 {
     if (!s)
         return kResultFalse;
+
     IBStreamer f(s, kLittleEndian);
-    double b = 0, dr = .30, c = 0, m = 1, o = .75;
+    double b = 0.0, dr = .30, c = 0.0, m = 1.0, o = .75;
     if (!f.readDouble(b) || !f.readDouble(dr) || !f.readDouble(c) || !f.readDouble(m) || !f.readDouble(o))
         return kResultFalse;
+
     onOff_ = clamp01(b);
     drive_ = clamp01(dr);
     character_ = clamp01(c);
@@ -523,14 +543,11 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
     smoothMix_ = mix_;
     smoothOutput_ = output_;
 
-    if (mixFxEngaged_)
-    {
-        mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
-        mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
-        mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
-        mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
-        mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
-    }
+    mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
+    mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
+    mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
+    mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
+    mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
     return kResultOk;
 }
 
@@ -538,12 +555,15 @@ tresult PLUGIN_API Processor::getState(IBStream* s)
 {
     if (!s)
         return kResultFalse;
+
     IBStreamer f(s, kLittleEndian);
-    f.writeDouble(onOff_);
-    f.writeDouble(drive_);
-    f.writeDouble(character_);
-    f.writeDouble(mix_);
-    f.writeDouble(output_);
+    if (!f.writeDouble(onOff_) ||
+        !f.writeDouble(drive_) ||
+        !f.writeDouble(character_) ||
+        !f.writeDouble(mix_) ||
+        !f.writeDouble(output_))
+        return kResultFalse;
+
     return kResultOk;
 }
 
