@@ -486,7 +486,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
         }
     };
 
-    bool allBypassed = true;
     auto run = [&](auto** srcs, auto** dsts)
     {
         using Sample = std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;
@@ -495,7 +494,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
             applyAutomation(n);
             updateSmoothers();
             const bool bypass = onOff_ >= .5;
-            allBypassed = allBypassed && bypass;
             const CoreParams params{smoothDrive_, smoothCharacter_, smoothMix_, smoothOutput_};
 
             for (int32 ch = 0; ch < chans; ++ch)
@@ -519,7 +517,35 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
     else
         return kResultFalse;
 
-    out.silenceFlags = allBypassed ? in.silenceFlags : 0;
+    out.silenceFlags = 0;
+    auto markSilentChannels = [&](auto** buffers)
+    {
+        for (int32 ch = 0; ch < chans; ++ch)
+        {
+            auto* buffer = buffers ? buffers[ch] : nullptr;
+            if (!buffer)
+                continue;
+
+            bool silent = true;
+            for (int32 n = 0; n < d.numSamples; ++n)
+            {
+                if (buffer[n] != 0)
+                {
+                    silent = false;
+                    break;
+                }
+            }
+
+            if (silent)
+                out.silenceFlags |= (Steinberg::uint64{1} << ch);
+        }
+    };
+
+    if (d.symbolicSampleSize == kSample64)
+        markSilentChannels(out.channelBuffers64);
+    else
+        markSilentChannels(out.channelBuffers32);
+
     return kResultOk;
 }
 
