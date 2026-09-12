@@ -34,7 +34,26 @@ jobs:
       - name: Build VST3 Validator
         run: cmake --build build --config Release --target validator
 
-      - name: Run VST3 Validator
+      - name: Prepare standard-category validator build
+        shell: pwsh
+        run: |
+          $factoryPath = "source/factory.cpp"
+          $factory = Get-Content $factoryPath -Raw
+          if (-not $factory.Contains('"Audio Mix Processor"')) {
+            throw "Mix FX factory category not found; refusing to create validator-only build"
+          }
+          $factory = $factory.Replace('"Audio Mix Processor"', 'kVstAudioEffectClass')
+          Set-Content -Path $factoryPath -Value $factory -Encoding utf8
+
+          cmake -S . -B build-validator `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/vst3sdk" `
+            -DSMTG_CREATE_PLUGIN_LINK=0
+
+          cmake --build build-validator --config Release --target SaturatorMixFX
+
+      - name: Run VST3 Validator against standard-category test build
         shell: pwsh
         run: |
           $validator = Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
@@ -42,17 +61,26 @@ jobs:
             throw "validator.exe not found after validator target build"
           }
 
-          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter SaturatorMixFX.vst3 | Select-Object -First 1
+          $plugin = Get-ChildItem -Path build-validator -Recurse -Directory -Filter SaturatorMixFX.vst3 | Select-Object -First 1
           if (-not $plugin) {
-            throw "SaturatorMixFX.vst3 not found after plugin build"
+            throw "validator-only SaturatorMixFX.vst3 not found"
           }
 
           Write-Host "Validator: $($validator.FullName)"
-          Write-Host "Plugin:    $($plugin.FullName)"
+          Write-Host "Test plugin: $($plugin.FullName)"
+          Write-Host "NOTE: Test build differs only in factory category; production Mix FX artifact remains unchanged."
 
           & $validator.FullName $plugin.FullName 2>&1 | Tee-Object -FilePath validator.log
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+          $validatorExit = $LASTEXITCODE
+
+          $log = Get-Content validator.log -Raw
+          if ($log -match 'Result:\s+0 tests passed,\s+0 tests failed') {
+            Write-Error "Validator created zero plugin tests; lifecycle/state validation did not actually run."
+            exit 2
+          }
+
+          if ($validatorExit -ne 0) {
+            exit $validatorExit
           }
 
       - name: Upload Validator Log
