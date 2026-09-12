@@ -166,7 +166,19 @@ tresult PLUGIN_API Processor::setActive(TBool s)
 {
     if (s)
         resetDsp();
+    else
+        processing_ = false;
     return AudioEffect::setActive(s);
+}
+
+tresult PLUGIN_API Processor::setProcessing(TBool state)
+{
+    const bool shouldProcess = state != 0;
+    if (shouldProcess && !processing_)
+        resetDsp();
+
+    processing_ = shouldProcess;
+    return AudioEffect::setProcessing(state);
 }
 
 void Processor::resetDsp()
@@ -465,7 +477,7 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
         return kResultFalse;
 
     IBStreamer f(s, kLittleEndian);
-    double b = 0, dr = .30, c = 0, m = 1, o = .75;
+    double b = 0.0, dr = .30, c = 0.0, m = 1.0, o = .75;
     if (!f.readDouble(b) || !f.readDouble(dr) || !f.readDouble(c) || !f.readDouble(m) || !f.readDouble(o))
         return kResultFalse;
 
@@ -487,11 +499,13 @@ tresult PLUGIN_API Processor::getState(IBStream* s)
         return kResultFalse;
 
     IBStreamer f(s, kLittleEndian);
-    f.writeDouble(onOff_);
-    f.writeDouble(drive_);
-    f.writeDouble(character_);
-    f.writeDouble(mix_);
-    f.writeDouble(output_);
+    if (!f.writeDouble(onOff_) ||
+        !f.writeDouble(drive_) ||
+        !f.writeDouble(character_) ||
+        !f.writeDouble(mix_) ||
+        !f.writeDouble(output_))
+        return kResultFalse;
+
     return kResultOk;
 }
 
