@@ -29,7 +29,7 @@ jobs:
           -DSMTG_CREATE_PLUGIN_LINK=0
 
       - name: Build Release
-        run: cmake --build build --config Release --target SaturatorMixFX
+        run: cmake --build build --config Release --target SMX-3-MixFX
 
       - name: Build VST3 Validator
         run: cmake --build build --config Release --target validator
@@ -51,7 +51,7 @@ jobs:
             -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/vst3sdk" `
             -DSMTG_CREATE_PLUGIN_LINK=0
 
-          cmake --build build-validator --config Release --target SaturatorMixFX
+          cmake --build build-validator --config Release --target SMX-3-MixFX
 
       - name: Run VST3 Validator against standard-category test build
         shell: pwsh
@@ -61,9 +61,9 @@ jobs:
             throw "validator.exe not found after validator target build"
           }
 
-          $plugin = Get-ChildItem -Path build-validator -Recurse -Directory -Filter SaturatorMixFX.vst3 | Select-Object -First 1
+          $plugin = Get-ChildItem -Path build-validator -Recurse -Directory -Filter SMX-3-MixFX.vst3 | Select-Object -First 1
           if (-not $plugin) {
-            throw "validator-only SaturatorMixFX.vst3 not found"
+            throw "validator-only SMX-3-MixFX.vst3 not found"
           }
 
           Write-Host "Validator: $($validator.FullName)"
@@ -87,13 +87,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SaturatorMixFX-Validator-Log
+          name: SMX-3-MixFX-Validator-Log
           path: validator.log
           if-no-files-found: warn
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: SaturatorMixFX-Windows-x64
+          name: SMX-3-MixFX-Windows-x64
           path: build/**/*.vst3
           if-no-files-found: error
