@@ -31,6 +31,46 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release --target SMX3Channel
 
+      - name: Build VST3 Validator
+        run: cmake --build build --config Release --target validator
+
+      - name: Run VST3 Validator
+        shell: pwsh
+        run: |
+          $validator = Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
+          if (-not $validator) {
+            throw "validator.exe not found after validator target build"
+          }
+
+          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter SMX3Channel.vst3 | Select-Object -First 1
+          if (-not $plugin) {
+            throw "SMX3Channel.vst3 not found after plugin build"
+          }
+
+          Write-Host "Validator: $($validator.FullName)"
+          Write-Host "Plugin:    $($plugin.FullName)"
+
+          & $validator.FullName $plugin.FullName 2>&1 | Tee-Object -FilePath validator.log
+          $validatorExit = $LASTEXITCODE
+
+          $log = Get-Content validator.log -Raw
+          if ($log -match 'Result:\s+0 tests passed,\s+0 tests failed') {
+            Write-Error "Validator created zero plugin tests; lifecycle/state validation did not actually run."
+            exit 2
+          }
+
+          if ($validatorExit -ne 0) {
+            exit $validatorExit
+          }
+
+      - name: Upload Validator Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMX3Channel-Validator-Log
+          path: validator.log
+          if-no-files-found: warn
+
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
