@@ -29,7 +29,7 @@ jobs:
           -DSMTG_CREATE_PLUGIN_LINK=0
 
       - name: Build Release
-        run: cmake --build build --config Release --target SMX3Channel
+        run: cmake --build build --config Release --target SMX-3-Channel
 
       - name: Build VST3 Validator
         run: cmake --build build --config Release --target validator
@@ -42,9 +42,9 @@ jobs:
             throw "validator.exe not found after validator target build"
           }
 
-          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter SMX3Channel.vst3 | Select-Object -First 1
+          $plugin = Get-ChildItem -Path build -Recurse -Directory -Filter SMX-3-Channel.vst3 | Select-Object -First 1
           if (-not $plugin) {
-            throw "SMX3Channel.vst3 not found after plugin build"
+            throw "SMX-3-Channel.vst3 not found after plugin build"
           }
 
           Write-Host "Validator: $($validator.FullName)"
@@ -67,13 +67,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SMX3Channel-Validator-Log
+          name: SMX-3-Channel-Validator-Log
           path: validator.log
           if-no-files-found: warn
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: SMX3Channel-Windows-x64
+          name: SMX-3-Channel-Windows-x64
           path: build/**/*.vst3
           if-no-files-found: error
