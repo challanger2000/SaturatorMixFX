@@ -28,7 +28,6 @@ double peakProtect(double x)
     return std::copysign(y, x);
 }
 
-// Single global Drive law. Monotonic, continuous and without internal knees.
 double shapeDrive(double d)
 {
     d = clamp01(d);
@@ -44,14 +43,12 @@ double shapeDrive(double d)
     return a / (a + b);
 }
 
-// C2-continuous 0..1 easing used only for level compensation.
 double smootherStep(double d)
 {
     d = clamp01(d);
     return d * d * d * (10.0 - 15.0 * d + 6.0 * d * d);
 }
 
-// Global Character calibration. No thresholds or piecewise Drive regions.
 double characterTrimDb(double effectiveDrive, double wT, double wP, double wI)
 {
     (void)wI;
@@ -359,8 +356,6 @@ double Processor::processCoreSample(double x, ChannelState& s, const CoreParams&
     processed = peakProtect(processed);
     processed = dcBlock(processed, s);
 
-    // All parallel paths are phase matched: both dry and wet come from the
-    // same oversampled clean reference. Drive controls one continuous blend.
     const double wetSignal = cleanOs + effectiveDrive * (processed - cleanOs);
     const double mixed = dry * cleanOs + wet * wetSignal;
     return mixed * outGain;
@@ -434,7 +429,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
         }
     };
 
-    bool allBypassed = true;
     auto run = [&](auto** srcs, auto** dsts)
     {
         using Sample = std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;
@@ -443,7 +437,6 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
             applyAutomation(n);
             updateSmoothers();
             const bool bypass = onOff_ >= .5;
-            allBypassed = allBypassed && bypass;
             const CoreParams params{smoothDrive_, smoothCharacter_, smoothMix_, smoothOutput_};
 
             for (int32 ch = 0; ch < chans; ++ch)
@@ -467,7 +460,35 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
     else
         return kResultFalse;
 
-    out.silenceFlags = allBypassed ? in.silenceFlags : 0;
+    out.silenceFlags = 0;
+    auto markSilentChannels = [&](auto** buffers)
+    {
+        for (int32 ch = 0; ch < chans; ++ch)
+        {
+            auto* buffer = buffers ? buffers[ch] : nullptr;
+            if (!buffer)
+                continue;
+
+            bool silent = true;
+            for (int32 n = 0; n < d.numSamples; ++n)
+            {
+                if (buffer[n] != 0)
+                {
+                    silent = false;
+                    break;
+                }
+            }
+
+            if (silent)
+                out.silenceFlags |= (Steinberg::uint64{1} << ch);
+        }
+    };
+
+    if (d.symbolicSampleSize == kSample64)
+        markSilentChannels(out.channelBuffers64);
+    else
+        markSilentChannels(out.channelBuffers32);
+
     return kResultOk;
 }
 
