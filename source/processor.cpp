@@ -162,7 +162,11 @@ tresult PLUGIN_API Processor::setupProcessing(ProcessSetup& s)
 tresult PLUGIN_API Processor::setActive(TBool s)
 {
     if (s)
+    {
         resetDsp();
+        if (mixFxEngaged_)
+            resetMixFxStates();
+    }
     return AudioEffect::setActive(s);
 }
 
@@ -354,6 +358,12 @@ tresult PLUGIN_API Processor::process(ProcessData& d)
     if (mixFxEngaged_)
     {
         readParameterChanges(d.inputParameterChanges);
+        mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
+        mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
+        mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
+        mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
+        mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
+
         if (d.numInputs <= 0 || d.numOutputs <= 0 || d.numSamples <= 0)
             return kResultOk;
 
@@ -512,6 +522,15 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
     smoothCharacter_ = character_;
     smoothMix_ = mix_;
     smoothOutput_ = output_;
+
+    if (mixFxEngaged_)
+    {
+        mixFxTargetBypass_.store(onOff_, std::memory_order_relaxed);
+        mixFxTargetDrive_.store(drive_, std::memory_order_relaxed);
+        mixFxTargetCharacter_.store(character_, std::memory_order_relaxed);
+        mixFxTargetMix_.store(mix_, std::memory_order_relaxed);
+        mixFxTargetOutput_.store(output_, std::memory_order_relaxed);
+    }
     return kResultOk;
 }
 
