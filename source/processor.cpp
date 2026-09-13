@@ -175,7 +175,7 @@ tresult PLUGIN_API Processor::setProcessing(TBool state)
         resetDsp();
 
     processing_ = shouldProcess;
-    return AudioEffect::setProcessing(state);
+    return kResultOk;
 }
 
 void Processor::resetDsp()
@@ -238,7 +238,7 @@ double Processor::shapeTriode(double x, ChannelState& s)
     const double n = std::tanh(.89 * xs - .52 * bias) + std::tanh(.52 * bias);
     double y = .655 * p + .345 * n;
     const double even = xs * xs / (1.0 + 1.65 * a);
-    y += .086 * even;
+    y += .0115 * even * std::copysign(1.0, xs + 1.0e-30);
     return y;
 }
 
@@ -246,37 +246,37 @@ double Processor::shapePentode(double x, ChannelState& s)
 {
     const double a = std::abs(x);
     s.pentodeCharge = pentodeChargeCoeff_ * s.pentodeCharge + (1.0 - pentodeChargeCoeff_) * a;
-    const double charge = s.pentodeCharge / (.30 + s.pentodeCharge);
-    const double screenSag = 1.0 - .070 * charge;
-    const double xs = x * screenSag;
-    const double oddCore = .44 * std::tanh((1.34 + .11 * charge) * xs);
-    const double oddEdge = .205 * std::tanh((2.28 + .23 * charge) * xs);
-    const double open = .145 * std::atan(1.82 * xs) * (2.0 / kPi);
-    const double quasiLinear = .21 * xs / (1.0 + .17 * std::abs(xs));
-    return oddCore + oddEdge + open + quasiLinear;
+    const double charge = s.pentodeCharge / (.28 + s.pentodeCharge);
+    const double sag = 1.0 - .035 * charge;
+    const double bias = .11 + .023 * charge;
+    const double xs = x * sag;
+    double y = std::tanh(1.68 * (xs + bias)) - std::tanh(1.68 * bias);
+    y += .017 * xs * xs * std::copysign(1.0, xs + 1.0e-30) / (1.0 + 1.25 * a);
+    return y;
 }
 
 double Processor::shapeIron(double x, ChannelState& s)
 {
+    const double a = std::abs(x);
+    s.ironFlux = ironFluxCoeff_ * s.ironFlux + (1.0 - ironFluxCoeff_) * a;
+    const double flux = s.ironFlux / (.22 + s.ironFlux);
     s.ironMemory = ironMemoryCoeff_ * s.ironMemory + (1.0 - ironMemoryCoeff_) * x;
-    s.ironFlux = ironFluxCoeff_ * s.ironFlux + (1.0 - ironFluxCoeff_) * std::abs(x);
-    const double fluxAmount = s.ironFlux / (.28 + s.ironFlux);
-    const double m = s.ironMemory;
-    const double f = x + (.255 + .045 * fluxAmount) * m;
-    const double core = (.555 - .020 * fluxAmount) * std::tanh((1.08 + .10 * fluxAmount) * f);
-    const double soft = .305 * f / (1.0 + (.285 + .055 * fluxAmount) * std::abs(f));
-    const double linear = (.125 + .018 * (1.0 - fluxAmount)) * f;
-    const double hysteretic = (.052 + .014 * fluxAmount) * m * std::abs(m);
-    return core + soft + linear + hysteretic;
+    const double hysteresis = .16 * s.ironMemory * (1.0 - .55 * flux);
+    const double xs = x + hysteresis;
+    double y = std::tanh(1.22 * xs);
+    const double cubic = xs * xs * xs;
+    y += .021 * cubic / (1.0 + 1.75 * std::abs(cubic));
+    return y;
 }
 
-double Processor::processNonlinear(double x, int m, ChannelState& s)
+double Processor::processNonlinear(double x, int mode, ChannelState& state)
 {
-    if (m == kTriode)
-        return shapeTriode(x, s);
-    if (m == kPentode)
-        return shapePentode(x, s);
-    return shapeIron(x, s);
+    switch (mode)
+    {
+        case 0: return shapeTriode(x, state);
+        case 1: return shapePentode(x, state);
+        default: return shapeIron(x, state);
+    }
 }
 
 double Processor::dcBlock(double x, ChannelState& s)
@@ -287,226 +287,121 @@ double Processor::dcBlock(double x, ChannelState& s)
     return y;
 }
 
-double Processor::processCoreSample(double x, ChannelState& s, const CoreParams& params)
+double Processor::processCoreSample(double x, ChannelState& state, const CoreParams& params)
 {
-    const double pos = clamp01(params.character) * 2.0;
-    const double wT = std::max(0.0, 1.0 - pos);
-    const double wI = std::max(0.0, pos - 1.0);
-    const double wP = 1.0 - wT - wI;
+    const double drive = shapeDrive(params.drive);
+    const double inGain = 1.0 + 6.8 * drive;
+    const double driven = x * inGain;
 
-    const double effectiveDrive = shapeDrive(params.drive);
-    const double driveDb = 24.0 * effectiveDrive;
-    const double inputGain = dbToGain(driveDb);
-    const double wet = clamp01(params.mix);
-    const double dry = 1.0 - wet;
-    const double outGain = dbToGain(-18.0 + 24.0 * clamp01(params.output));
+    const int mode = std::clamp(static_cast<int>(std::lround(params.character * 2.0)), 0, 2);
+    const double wT = mode == 0 ? 1.0 : 0.0;
+    const double wP = mode == 1 ? 1.0 : 0.0;
+    const double wI = mode == 2 ? 1.0 : 0.0;
 
-    const double trim = (-9.50 * wT - 19.00 * wP - 14.47 * wI) * effectiveDrive;
-    const double baseComp = (-.46 * wT - .52 * wP - .40 * wI) * driveDb;
-    const double polishTrimDb = (.73 * wT + 2.67 * wP - .06 * wI) * effectiveDrive;
-    const double smoothTrimDb = characterTrimDb(effectiveDrive, wT, wP, wI);
-    const double comp = dbToGain(trim + baseComp + polishTrimDb + smoothTrimDb);
+    double nonlinear = processNonlinear(driven, mode, state);
+    nonlinear = dcBlock(nonlinear, state);
 
-    const double protect = .18 * wT + .42 * wP + .30 * wI;
-    const double attackAmount = .08 * wT + .22 * wP + .15 * wI;
+    const double trimDb = characterTrimDb(drive, wT, wP, wI);
+    nonlinear *= dbToGain(trimDb);
 
-    s.lowBand = lowCoeff_ * s.lowBand + (1.0 - lowCoeff_) * x;
-    s.highSmooth = highCoeff_ * s.highSmooth + (1.0 - highCoeff_) * x;
-    const double low = s.lowBand;
-    const double high = x - s.highSmooth;
-    const double mid = x - low - high;
-
-    const double triCol = .94 * low + 1.09 * mid + .84 * high;
-    const double penCol = .84 * low + 1.10 * mid + 1.07 * high;
-    const double ironCol = 1.13 * low + 1.025 * mid + .80 * high;
-    const double coloured = wT * triCol + wP * penCol + wI * ironCol;
-
-    const double a = std::abs(x);
-    s.envFast = envFastCoeff_ * s.envFast + (1.0 - envFastCoeff_) * a;
-    s.envSlow = envSlowCoeff_ * s.envSlow + (1.0 - envSlowCoeff_) * a;
-    const double transient = std::max(0.0, s.envFast - s.envSlow);
-    const double normTransient = clamp01(transient / (.06 + s.envSlow));
-    const double dynamicGain = inputGain * (1.0 - protect * normTransient);
-
-    double processedOs = 0.0;
-    double cleanOs = 0.0;
-    for (int os = 0; os < kOversample; ++os)
-    {
-        const double stuffed = (os == 0) ? (coloured * static_cast<double>(kOversample)) : 0.0;
-        const double cleanStuffed = (os == 0) ? (x * static_cast<double>(kOversample)) : 0.0;
-        const double up = runOversamplingFilter(stuffed, s.osUp);
-        const double cleanUp = runOversamplingFilter(cleanStuffed, s.cleanUp);
-        const double nlT = shapeTriode(up * dynamicGain, s);
-        const double nlP = shapePentode(up * dynamicGain, s);
-        const double nlI = shapeIron(up * dynamicGain, s);
-        const double nl = wT * nlT + wP * nlP + wI * nlI;
-        const double filtered = runOversamplingFilter(nl, s.osDown);
-        const double cleanFiltered = runOversamplingFilter(cleanUp, s.cleanDown);
-
-        if (os == kOversample - 1)
-        {
-            processedOs = filtered;
-            cleanOs = cleanFiltered;
-        }
-    }
-
-    double processed = processedOs * comp;
-    const double attackBlend = normTransient * attackAmount;
-    processed = processed * (1.0 - attackBlend) + cleanOs * attackBlend;
-    processed = peakProtect(processed);
-    processed = dcBlock(processed, s);
-
-    const double wetSignal = cleanOs + effectiveDrive * (processed - cleanOs);
-    const double mixed = dry * cleanOs + wet * wetSignal;
-    return mixed * outGain;
+    const double wet = nonlinear;
+    const double mixed = x * (1.0 - params.mix) + wet * params.mix;
+    const double outDb = (params.output - .75) * 24.0;
+    return peakProtect(mixed * dbToGain(outDb));
 }
 
-tresult PLUGIN_API Processor::process(ProcessData& d)
+tresult PLUGIN_API Processor::process(ProcessData& data)
 {
-    if (d.numInputs == 0 || d.numOutputs == 0 || d.numSamples <= 0)
+    readParameterChanges(data.inputParameterChanges);
+
+    if (data.numOutputs <= 0 || !data.outputs)
+        return kResultOk;
+
+    if (onOff_ >= .5)
     {
-        readParameterChanges(d.inputParameterChanges);
+        for (int32 bus = 0; bus < data.numOutputs; ++bus)
+        {
+            auto& out = data.outputs[bus];
+            if (data.numInputs > bus && data.inputs)
+            {
+                auto& in = data.inputs[bus];
+                const int32 channels = std::min(in.numChannels, out.numChannels);
+                if (data.symbolicSampleSize == kSample32)
+                {
+                    for (int32 ch = 0; ch < channels; ++ch)
+                        if (in.channelBuffers32 && out.channelBuffers32 && in.channelBuffers32[ch] && out.channelBuffers32[ch])
+                            std::copy_n(in.channelBuffers32[ch], data.numSamples, out.channelBuffers32[ch]);
+                }
+                else if (data.symbolicSampleSize == kSample64)
+                {
+                    for (int32 ch = 0; ch < channels; ++ch)
+                        if (in.channelBuffers64 && out.channelBuffers64 && in.channelBuffers64[ch] && out.channelBuffers64[ch])
+                            std::copy_n(in.channelBuffers64[ch], data.numSamples, out.channelBuffers64[ch]);
+                }
+                out.silenceFlags = in.silenceFlags;
+            }
+        }
         return kResultOk;
     }
 
-    auto& in = d.inputs[0];
-    auto& out = d.outputs[0];
-    const int32 chans = std::min<int32>(std::min(in.numChannels, out.numChannels), kMaxChannels);
+    updateSmoothers();
+    CoreParams params{smoothDrive_, smoothCharacter_, smoothMix_, smoothOutput_};
 
-    struct QueueCursor
+    for (int32 bus = 0; bus < data.numOutputs; ++bus)
     {
-        IParamValueQueue* q = nullptr;
-        int32 next = 0;
-        int32 count = 0;
-        ParamID id = 0;
-    };
+        auto& out = data.outputs[bus];
+        if (data.numInputs <= bus || !data.inputs)
+            continue;
+        auto& in = data.inputs[bus];
+        const int32 channels = std::min({in.numChannels, out.numChannels, kMaxChannels});
 
-    std::array<QueueCursor, 5> cursors{};
-    int cursorCount = 0;
-    if (d.inputParameterChanges)
-    {
-        for (int32 i = 0; i < d.inputParameterChanges->getParameterCount() && cursorCount < static_cast<int>(cursors.size()); ++i)
+        if (data.symbolicSampleSize == kSample32)
         {
-            auto* q = d.inputParameterChanges->getParameterData(i);
-            if (!q || q->getPointCount() <= 0)
-                continue;
-            const ParamID id = q->getParameterId();
-            if (id != kParamOnOff && id != kParamDrive && id != kParamCharacter && id != kParamMix && id != kParamOutput)
-                continue;
-            cursors[static_cast<size_t>(cursorCount++)] = {q, 0, q->getPointCount(), id};
-        }
-    }
-
-    auto applyAutomation = [&](int32 sample)
-    {
-        for (int i = 0; i < cursorCount; ++i)
-        {
-            auto& c = cursors[static_cast<size_t>(i)];
-            while (c.next < c.count)
+            for (int32 ch = 0; ch < channels; ++ch)
             {
-                int32 off = 0;
-                ParamValue v = 0;
-                if (c.q->getPoint(c.next, off, v) != kResultTrue)
-                {
-                    ++c.next;
-                    continue;
-                }
-                if (off > sample)
-                    break;
-
-                v = clamp01(v);
-                switch (c.id)
-                {
-                    case kParamOnOff: onOff_ = v; break;
-                    case kParamDrive: drive_ = v; break;
-                    case kParamCharacter: character_ = v; break;
-                    case kParamMix: mix_ = v; break;
-                    case kParamOutput: output_ = v; break;
-                    default: break;
-                }
-                ++c.next;
-            }
-        }
-    };
-
-    auto run = [&](auto** srcs, auto** dsts)
-    {
-        using Sample = std::remove_pointer_t<std::remove_pointer_t<decltype(srcs)>>;
-        for (int32 n = 0; n < d.numSamples; ++n)
-        {
-            applyAutomation(n);
-            updateSmoothers();
-            const bool bypass = onOff_ >= .5;
-            const CoreParams params{smoothDrive_, smoothCharacter_, smoothMix_, smoothOutput_};
-
-            for (int32 ch = 0; ch < chans; ++ch)
-            {
-                auto* src = srcs[ch];
-                auto* dst = dsts[ch];
+                auto* src = in.channelBuffers32 ? in.channelBuffers32[ch] : nullptr;
+                auto* dst = out.channelBuffers32 ? out.channelBuffers32[ch] : nullptr;
                 if (!src || !dst)
                     continue;
-                const double x = static_cast<double>(src[n]);
                 auto& state = channelState_[static_cast<size_t>(ch)];
-                const double y = processCoreSample(x, state, params);
-                dst[n] = static_cast<Sample>(bypass ? x : y);
+                for (int32 i = 0; i < data.numSamples; ++i)
+                    dst[i] = static_cast<float>(processCoreSample(src[i], state, params));
             }
         }
-    };
-
-    if (d.symbolicSampleSize == kSample64)
-        run(in.channelBuffers64, out.channelBuffers64);
-    else if (d.symbolicSampleSize == kSample32)
-        run(in.channelBuffers32, out.channelBuffers32);
-    else
-        return kResultFalse;
-
-    out.silenceFlags = 0;
-    auto markSilentChannels = [&](auto** buffers)
-    {
-        for (int32 ch = 0; ch < chans; ++ch)
+        else if (data.symbolicSampleSize == kSample64)
         {
-            auto* buffer = buffers ? buffers[ch] : nullptr;
-            if (!buffer)
-                continue;
-
-            bool silent = true;
-            for (int32 n = 0; n < d.numSamples; ++n)
+            for (int32 ch = 0; ch < channels; ++ch)
             {
-                if (buffer[n] != 0)
-                {
-                    silent = false;
-                    break;
-                }
+                auto* src = in.channelBuffers64 ? in.channelBuffers64[ch] : nullptr;
+                auto* dst = out.channelBuffers64 ? out.channelBuffers64[ch] : nullptr;
+                if (!src || !dst)
+                    continue;
+                auto& state = channelState_[static_cast<size_t>(ch)];
+                for (int32 i = 0; i < data.numSamples; ++i)
+                    dst[i] = processCoreSample(src[i], state, params);
             }
-
-            if (silent)
-                out.silenceFlags |= (Steinberg::uint64{1} << ch);
         }
-    };
-
-    if (d.symbolicSampleSize == kSample64)
-        markSilentChannels(out.channelBuffers64);
-    else
-        markSilentChannels(out.channelBuffers32);
-
+        out.silenceFlags = in.silenceFlags;
+    }
     return kResultOk;
 }
 
-tresult PLUGIN_API Processor::setState(IBStream* s)
+tresult PLUGIN_API Processor::setState(IBStream* state)
 {
-    if (!s)
-        return kResultFalse;
+    if (!state)
+        return kInvalidArgument;
 
-    IBStreamer f(s, kLittleEndian);
-    double b = 0.0, dr = .30, c = 0.0, m = 1.0, o = .75;
-    if (!f.readDouble(b) || !f.readDouble(dr) || !f.readDouble(c) || !f.readDouble(m) || !f.readDouble(o))
-        return kResultFalse;
+    IBStreamer s(state, kLittleEndian);
+    double values[5]{};
+    for (double& v : values)
+        if (!s.readDouble(v))
+            return kResultFalse;
 
-    onOff_ = clamp01(b);
-    drive_ = clamp01(dr);
-    character_ = clamp01(c);
-    mix_ = clamp01(m);
-    output_ = clamp01(o);
+    onOff_ = clamp01(values[0]);
+    drive_ = clamp01(values[1]);
+    character_ = clamp01(values[2]);
+    mix_ = clamp01(values[3]);
+    output_ = clamp01(values[4]);
     smoothDrive_ = drive_;
     smoothCharacter_ = character_;
     smoothMix_ = mix_;
@@ -514,19 +409,16 @@ tresult PLUGIN_API Processor::setState(IBStream* s)
     return kResultOk;
 }
 
-tresult PLUGIN_API Processor::getState(IBStream* s)
+tresult PLUGIN_API Processor::getState(IBStream* state)
 {
-    if (!s)
-        return kResultFalse;
+    if (!state)
+        return kInvalidArgument;
 
-    IBStreamer f(s, kLittleEndian);
-    if (!f.writeDouble(onOff_) ||
-        !f.writeDouble(drive_) ||
-        !f.writeDouble(character_) ||
-        !f.writeDouble(mix_) ||
-        !f.writeDouble(output_))
-        return kResultFalse;
-
+    IBStreamer s(state, kLittleEndian);
+    const double values[5] = {onOff_, drive_, character_, mix_, output_};
+    for (double v : values)
+        if (!s.writeDouble(v))
+            return kResultFalse;
     return kResultOk;
 }
 
